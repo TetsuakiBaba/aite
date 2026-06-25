@@ -1,0 +1,4 @@
+upload.txt
+.DS_Store
+data/*.sqlite
+data/admin_token.txt
