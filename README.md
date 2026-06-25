@@ -39,7 +39,7 @@ chmod 775 data
 - `FTP_SERVER`: FTPサーバーのホスト名
 - `FTP_USERNAME`: FTPユーザー名
 - `FTP_PASSWORD`: FTPパスワード
-- `FTP_SERVER_DIR`: デプロイ先ディレクトリ。未設定時は `./`
+- `FTP_SERVER_DIR`: デプロイ先ディレクトリ。未設定時は `./`。末尾の `/` は省略できます。
 - `FTP_PORT`: FTPポート。未設定時は `21`
 - `FTP_PROTOCOL`: `ftp` または `ftps`。未設定時は `ftp`
 
