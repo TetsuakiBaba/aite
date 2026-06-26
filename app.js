@@ -1781,6 +1781,7 @@
 
     function initAnsweredResponseMode() {
         var form = document.getElementById('responseForm');
+        var summary = document.getElementById('summaryCard');
         var notice = document.getElementById('answeredNotice');
         var answerList = document.getElementById('answerList');
         var submit = document.getElementById('responseSubmit');
@@ -1794,15 +1795,23 @@
             form.classList.toggle('response-edit-minimal', !enabled);
         }
 
+        function setCardOrder(answered) {
+            if (!summary || !form.parentNode) return;
+            if (answered) form.parentNode.insertBefore(summary, form);
+            else form.parentNode.insertBefore(form, summary);
+        }
+
         window.aiteShowResponseEditor = function () {
             setEditing(true);
         };
 
         if (!hasAnsweredCurrentResponse()) {
+            setCardOrder(false);
             setEditing(true);
             return;
         }
 
+        setCardOrder(true);
         if (notice) notice.hidden = false;
         setEditing(false);
     }
