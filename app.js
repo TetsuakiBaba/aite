@@ -1489,6 +1489,17 @@
             textarea.placeholder = '[{"slot_id":"slot_xxx","status":"x","busy_events":[{"title":"' + tr('js.prompt_busy_title') + '","start":"13:00","end":"14:00"}]}]';
         }
         if (copyButton) {
+            var copyButtonText = copyButton.textContent;
+            var copyFeedbackTimer = null;
+            function showCopyFeedback() {
+                copyButton.textContent = tr('js.copied_to_clipboard');
+                copyButton.classList.add('copied');
+                clearTimeout(copyFeedbackTimer);
+                copyFeedbackTimer = window.setTimeout(function () {
+                    copyButton.textContent = copyButtonText;
+                    copyButton.classList.remove('copied');
+                }, 1800);
+            }
             try {
                 slots = JSON.parse(copyButton.getAttribute('data-slots') || '[]');
             } catch (e) {
@@ -1533,12 +1544,14 @@
 
                 if (navigator.clipboard && navigator.clipboard.writeText) {
                     navigator.clipboard.writeText(prompt).then(function () {
-                        if (message) message.textContent = tr('js.copied');
+                        showCopyFeedback();
                     }).catch(function () {
-                        fallbackCopy(prompt, message);
+                        fallbackCopy(prompt, null);
+                        showCopyFeedback();
                     });
                 } else {
-                    fallbackCopy(prompt, message);
+                    fallbackCopy(prompt, null);
+                    showCopyFeedback();
                 }
             });
         }
