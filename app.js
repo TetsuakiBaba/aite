@@ -1,9 +1,23 @@
 (function () {
+    var lang = window.AITE_LANG || 'ja';
+    var i18n = window.AITE_I18N || {};
+    var tr = function (key) {
+        var text = i18n[key] || key;
+        Array.prototype.slice.call(arguments, 1).forEach(function (value) {
+            text = text.replace('%d', value).replace('%s', value);
+        });
+        return text;
+    };
     var pad = function (n) { return String(n).padStart(2, '0'); };
     var ymd = function (d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); };
-    var weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+    var weekdays = tr('js.weekdays_short').split(',');
+    var SLOT_MINUTES = 10;
+    var DAY_UNITS = 24 * 60 / SLOT_MINUTES;
+    var DAY_MINUTES = 24 * 60;
+    var FRAME_START_MINUTES = 6 * 60;
+    var FRAME_START_UNITS = FRAME_START_MINUTES / SLOT_MINUTES;
     var timeText = function (index) {
-        var minutes = index * 30;
+        var minutes = index * SLOT_MINUTES;
         return pad(Math.floor(minutes / 60)) + ':' + pad(minutes % 60);
     };
     var slotText = function (date, start, end) {
@@ -13,12 +27,18 @@
         var m = String(dateText || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
         if (!m) return dateText;
         var d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+        if (lang === 'en') return m[1] + '/' + m[2] + '/' + m[3] + ' (' + weekdays[d.getDay()] + ')';
         return m[1] + '/' + m[2] + '/' + m[3] + '（' + weekdays[d.getDay()] + '）';
     };
     var slotLabel = function (text) {
         var parsed = parseSlot(text);
-        if (!parsed) return text;
-        return dateLabel(parsed.date) + ' ' + timeText(parsed.start) + '-' + timeText(parsed.end);
+        if (parsed) return dateLabel(parsed.date) + ' ' + timeText(parsed.start) + '-' + timeText(parsed.end);
+        if (parseDateSlot(text)) return dateLabel(text);
+        return text;
+    };
+    var monthLabelText = function (date, year, month) {
+        if (lang === 'en') return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+        return year + tr('js.year_suffix') + ' ' + (month + 1) + tr('js.month_suffix');
     };
     var labelStepForWidth = function (width) {
         if (width < 430) return 4;
@@ -38,17 +58,28 @@
     var parseSlot = function (text) {
         var m = String(text).match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2})-(\d{2}):(\d{2})$/);
         if (!m) return null;
+        var start = (Number(m[2]) * 60 + Number(m[3])) / SLOT_MINUTES;
+        var end = (Number(m[4]) * 60 + Number(m[5])) / SLOT_MINUTES;
+        if (start < 0 || end > DAY_UNITS || end <= start || Math.floor(start) !== start || Math.floor(end) !== end) return null;
         return {
             date: m[1],
-            start: (Number(m[2]) * 60 + Number(m[3])) / 30,
-            end: (Number(m[4]) * 60 + Number(m[5])) / 30
+            start: start,
+            end: end
         };
+    };
+    var parseDateSlot = function (text) {
+        var value = String(text || '').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+        var m = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        var d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+        if (ymd(d) !== value) return null;
+        return { date: value };
     };
     var timeIndex = function (text) {
         var m = String(text || '').match(/^(\d{1,2}):(\d{2})$/);
         if (!m) return null;
-        var index = (Number(m[1]) * 60 + Number(m[2])) / 30;
-        if (index < 0 || index > 48 || Math.floor(index) !== index) return null;
+        var index = (Number(m[1]) * 60 + Number(m[2])) / SLOT_MINUTES;
+        if (index < 0 || index > DAY_UNITS || Math.floor(index) !== index) return null;
         return index;
     };
     var timeMinutes = function (text) {
@@ -67,6 +98,12 @@
         if (['x', 'no', 'unavailable', '×', '✕', '✖'].indexOf(v) >= 0) return 'x';
         return null;
     };
+    var icon = function (name) {
+        var el = document.createElement('span');
+        el.className = 'icon icon-' + name;
+        el.setAttribute('aria-hidden', 'true');
+        return el;
+    };
 
     function initCreate() {
         var form = document.getElementById('createForm');
@@ -81,6 +118,20 @@
         var slotsInput = document.getElementById('slotsInput');
         var manualPanel = document.getElementById('manualPanel');
         var manualSlots = document.getElementById('manualSlots');
+        var manualMessage = document.getElementById('manualMessage');
+        var titleInput = document.getElementById('eventTitle');
+        var slotSection = document.getElementById('slotSection');
+        var submitButton = document.getElementById('createSubmit');
+        var descriptionToggle = document.getElementById('descriptionToggle');
+        var descriptionPanel = document.getElementById('descriptionPanel');
+        var descriptionInput = descriptionPanel ? descriptionPanel.querySelector('textarea[name="description"]') : null;
+        var minDurationToggle = document.getElementById('minDurationToggle');
+        var minDurationPanel = document.getElementById('minDurationPanel');
+        var minDurationInput = document.getElementById('minDurationMinutes');
+        var dateOnlyToggle = document.getElementById('dateOnlyToggle');
+        var dateOnlyHint = document.getElementById('dateOnlyHint');
+        var timelineHint = document.getElementById('timelineHint');
+        var manualLabel = document.getElementById('manualLabel');
         var slots = [];
         var today = new Date();
         var viewDate = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -91,8 +142,97 @@
         var resizeSlot = null;
         var suppressTimeClick = false;
         var labelStep = labelStepForWidth(timeline ? timeline.clientWidth : window.innerWidth);
-        var frameStart = 12;
-        var frameUnits = 48;
+        var frameStart = FRAME_START_UNITS;
+        var frameUnits = DAY_UNITS;
+
+        function titleIsReady() {
+            return !!(titleInput && titleInput.value.trim());
+        }
+
+        function setCreateStepState() {
+            var ready = titleIsReady();
+            if (slotSection) {
+                slotSection.classList.toggle('is-active', ready);
+                slotSection.setAttribute('aria-disabled', ready ? 'false' : 'true');
+            }
+            if (submitButton) submitButton.disabled = !ready;
+        }
+
+        function setDescriptionState() {
+            var enabled = !!(descriptionToggle && descriptionToggle.checked);
+            if (descriptionPanel) descriptionPanel.hidden = !enabled;
+            if (descriptionInput) {
+                descriptionInput.disabled = !enabled;
+                if (!enabled) descriptionInput.value = '';
+            }
+        }
+
+        function setMinDurationState() {
+            var enabled = !!(minDurationToggle && minDurationToggle.checked && !dateOnlyMode());
+            if (minDurationToggle) minDurationToggle.disabled = dateOnlyMode();
+            if (minDurationPanel) minDurationPanel.hidden = !enabled;
+            if (minDurationInput) minDurationInput.disabled = !enabled;
+        }
+
+        function dateOnlyMode() {
+            return !!(dateOnlyToggle && dateOnlyToggle.checked);
+        }
+
+        function setDateOnlyState() {
+            var enabled = dateOnlyMode();
+            if (dateOnlyHint) dateOnlyHint.hidden = !enabled;
+            if (timelineHint) timelineHint.textContent = enabled ? timelineHint.dataset.dateHint : timelineHint.dataset.timeHint;
+            if (manualLabel) manualLabel.textContent = enabled ? manualLabel.dataset.dateLabel : manualLabel.dataset.timeLabel;
+            if (manualSlots) {
+                manualSlots.placeholder = enabled ? '2026-07-01\n2026-07-02' : '2026-07-01 13:00-14:00\n2026-07-02 10:00-12:00';
+            }
+            if (timelineWrap && enabled) timelineWrap.hidden = true;
+            if (enabled) activeDate = null;
+            setMinDurationState();
+            setManualMessage('');
+            renderAll();
+        }
+
+        function minDurationUnits() {
+            if (!minDurationToggle || !minDurationToggle.checked || !minDurationInput) return 0;
+            var minutes = Number(minDurationInput.value || 0);
+            if (!Number.isFinite(minutes) || minutes < SLOT_MINUTES || minutes % SLOT_MINUTES !== 0) return null;
+            return minutes / SLOT_MINUTES;
+        }
+
+        function setManualMessage(message) {
+            if (manualMessage) manualMessage.textContent = message || '';
+        }
+
+        function validateManualSlots() {
+            var lines = parseLines(manualSlots.value);
+            var minUnits = minDurationUnits();
+            if (minUnits === null) {
+                setManualMessage(tr('error.min_duration_invalid'));
+                return null;
+            }
+            if (lines.some(function (line) { return !parseSlot(line); })) {
+                if (dateOnlyMode()) {
+                    if (lines.some(function (line) { return !parseDateSlot(line); })) {
+                        setManualMessage(tr('js.date_required'));
+                        return null;
+                    }
+                    setManualMessage('');
+                    return lines;
+                }
+                setManualMessage(tr('js.slot_30_minute_required'));
+                return null;
+            }
+            if (minUnits > 0 && lines.some(function (line) {
+                var parsed = parseSlot(line);
+                return parsed && parsed.end - parsed.start < minUnits;
+            })) {
+                setManualMessage(tr('js.slot_min_duration_required'));
+                return null;
+            }
+            setManualMessage('');
+            return lines;
+        }
 
         function visualToAbs(index) {
             return (index + frameStart) % frameUnits;
@@ -140,15 +280,15 @@
                 if (resizeData) {
                     var left = document.createElement('span');
                     left.className = 'time-handle left';
-                    left.textContent = '‹';
-                    left.setAttribute('aria-label', '開始時間を変更');
+                    left.setAttribute('aria-label', tr('js.change_start'));
+                    left.appendChild(icon('nav-arrow-left'));
                     var text = document.createElement('span');
                     text.className = 'time-text';
                     text.textContent = label;
                     var right = document.createElement('span');
                     right.className = 'time-handle right';
-                    right.textContent = '›';
-                    right.setAttribute('aria-label', '終了時間を変更');
+                    right.setAttribute('aria-label', tr('js.change_end'));
+                    right.appendChild(icon('nav-arrow-right'));
                     block.appendChild(left);
                     block.appendChild(text);
                     block.appendChild(right);
@@ -180,6 +320,22 @@
         }
 
         function addSlot(text) {
+            if (dateOnlyMode()) {
+                if (!parseDateSlot(text)) return;
+                if (slots.indexOf(text) === -1) {
+                    slots.push(text);
+                    slots.sort();
+                    renderAll();
+                }
+                return;
+            }
+            var parsed = parseSlot(text);
+            var minUnits = minDurationUnits();
+            if (!parsed || minUnits === null) return;
+            if (minUnits > 0 && parsed.end - parsed.start < minUnits) {
+                alert(tr('js.slot_min_duration_required'));
+                return;
+            }
             if (slots.indexOf(text) === -1) {
                 slots.push(text);
                 slots.sort();
@@ -200,11 +356,13 @@
         }
 
         function rangesFor(date) {
+            if (dateOnlyMode()) return [];
             return slots.map(parseSlot).filter(function (s) { return s && s.date === date; });
         }
 
         function hasDate(date) {
             return slots.some(function (text) {
+                if (dateOnlyMode()) return text === date;
                 var parsed = parseSlot(text);
                 return parsed && parsed.date === date;
             });
@@ -213,10 +371,10 @@
         function renderCalendar() {
             var year = viewDate.getFullYear();
             var month = viewDate.getMonth();
-            monthLabel.textContent = year + '年 ' + (month + 1) + '月';
+            monthLabel.textContent = monthLabelText(viewDate, year, month);
             calendar.innerHTML = '';
 
-            ['日', '月', '火', '水', '木', '金', '土'].forEach(function (day) {
+            weekdays.forEach(function (day) {
                 var el = document.createElement('div');
                 el.className = 'cal-week';
                 el.textContent = day;
@@ -239,7 +397,14 @@
                 if (dateText === activeDate) button.classList.add('active');
                 button.textContent = d;
                 button.addEventListener('click', function (value) {
-                    return function () { openTimeline(value); };
+                    return function () {
+                        if (dateOnlyMode()) {
+                            if (slots.indexOf(value) >= 0) removeSlot(value);
+                            else addSlot(value);
+                            return;
+                        }
+                        openTimeline(value);
+                    };
                 }(dateText));
                 calendar.appendChild(button);
             }
@@ -251,7 +416,7 @@
             if (!slots.length) {
                 var empty = document.createElement('p');
                 empty.className = 'muted';
-                empty.textContent = 'まだ候補日時がありません。';
+                empty.textContent = tr('js.no_slots');
                 selectedSlots.appendChild(empty);
                 return;
             }
@@ -259,7 +424,10 @@
                 var chip = document.createElement('button');
                 chip.type = 'button';
                 chip.className = 'slot-chip';
-                chip.textContent = slotLabel(text) + '  ×';
+                var label = document.createElement('span');
+                label.textContent = slotLabel(text);
+                chip.appendChild(label);
+                chip.appendChild(icon('xmark'));
                 chip.addEventListener('click', function () { removeSlot(text); });
                 selectedSlots.appendChild(chip);
             });
@@ -286,8 +454,9 @@
 
             var selectRow = document.createElement('div');
             selectRow.className = 'time-select-row';
+            selectRow.style.gridTemplateColumns = 'repeat(' + frameUnits + ', minmax(0, 1fr))';
             track.appendChild(selectRow);
-            for (var i = 0; i < 48; i++) {
+            for (var i = 0; i < frameUnits; i++) {
                 var cell = document.createElement('button');
                 cell.type = 'button';
                 cell.className = 'time-cell';
@@ -298,7 +467,7 @@
 
             rangesFor(activeDate).forEach(function (range) {
                 appendTimeBlock(track, 'time-block', timeText(range.start) + '-' + timeText(range.end), range.start, range.end, function (e) {
-                    if (e.target.classList.contains('time-handle') || suppressTimeClick) {
+                    if (e.target.closest('.time-handle') || suppressTimeClick) {
                         suppressTimeClick = false;
                         return;
                     }
@@ -339,10 +508,10 @@
             var selectRow = timeline.querySelector('.time-select-row');
             if (!selectRow) return null;
             var rect = selectRow.getBoundingClientRect();
-            var cellWidth = rect.width / 48;
+            var cellWidth = rect.width / frameUnits;
             var index = Math.floor((e.clientX - rect.left) / cellWidth);
             if (index < 0) index = 0;
-            if (index > 47) index = 47;
+            if (index > frameUnits - 1) index = frameUnits - 1;
             return index;
         }
 
@@ -438,17 +607,77 @@
             manualPanel.hidden = !manualPanel.hidden;
         });
         document.getElementById('mergeManual').addEventListener('click', function () {
-            parseLines(manualSlots.value).forEach(addSlot);
+            var lines = validateManualSlots();
+            if (lines === null) return;
+            lines.forEach(addSlot);
         });
+        if (manualSlots) {
+            manualSlots.addEventListener('input', function () {
+                if (manualSlots.value.trim() !== '') validateManualSlots();
+                else setManualMessage('');
+            });
+        }
+        if (titleInput) {
+            titleInput.addEventListener('input', setCreateStepState);
+        }
+        if (descriptionToggle) {
+            descriptionToggle.addEventListener('change', setDescriptionState);
+        }
+        if (minDurationToggle) {
+            minDurationToggle.addEventListener('change', function () {
+                setMinDurationState();
+                if (manualSlots && manualSlots.value.trim() !== '') validateManualSlots();
+            });
+        }
+        if (minDurationInput) {
+            minDurationInput.addEventListener('input', function () {
+                if (manualSlots && manualSlots.value.trim() !== '') validateManualSlots();
+            });
+        }
+        if (dateOnlyToggle) {
+            dateOnlyToggle.addEventListener('change', function () {
+                slots = [];
+                activeDate = null;
+                if (timelineWrap) timelineWrap.hidden = true;
+                if (manualSlots) manualSlots.value = '';
+                setDateOnlyState();
+            });
+        }
         form.addEventListener('submit', function (e) {
-            parseLines(manualSlots.value).forEach(function (line) {
+            if (!titleIsReady()) {
+                e.preventDefault();
+                if (titleInput) titleInput.focus();
+                return;
+            }
+            if (!dateOnlyMode() && minDurationUnits() === null) {
+                e.preventDefault();
+                alert(tr('error.min_duration_invalid'));
+                if (minDurationInput) minDurationInput.focus();
+                return;
+            }
+            var manualLines = validateManualSlots();
+            if (manualLines === null) {
+                e.preventDefault();
+                if (manualSlots) manualSlots.focus();
+                return;
+            }
+            manualLines.forEach(function (line) {
                 if (slots.indexOf(line) === -1) slots.push(line);
             });
             slots.sort();
+            var minUnits = minDurationUnits();
+            if (!dateOnlyMode() && minUnits > 0 && slots.some(function (text) {
+                var parsed = parseSlot(text);
+                return parsed && parsed.end - parsed.start < minUnits;
+            })) {
+                e.preventDefault();
+                alert(tr('js.slot_min_duration_required'));
+                return;
+            }
             slotsInput.value = slots.join('\n');
             if (!slots.length) {
                 e.preventDefault();
-                alert('候補日時を1つ以上入力してください。');
+                alert(tr('js.create_slot_required'));
             }
         });
         if (window.ResizeObserver) {
@@ -470,6 +699,10 @@
             });
         }
 
+        setCreateStepState();
+        setDescriptionState();
+        setMinDurationState();
+        setDateOnlyState();
         renderAll();
     }
 
@@ -477,17 +710,23 @@
         var form = document.getElementById('responseForm');
         var hidden = document.getElementById('availabilityInput');
         if (!form || !hidden) return;
+        if (window.AITE_RESPONSE_CONFIG && window.AITE_RESPONSE_CONFIG.dateOnly) return;
 
         var cards = Array.prototype.slice.call(document.querySelectorAll('.availability-card'));
+        var viewToggle = document.getElementById('toggleRangeView');
         var selections = {};
         var busyEvents = {};
         var drag = null;
         var resize = null;
-        var frameStart = 12;
-        var frameUnits = 48;
-        var frameStartMinutes = 360;
-        var frameMinutes = 1440;
+        var rangeOnlyView = true;
+        var frameStart = FRAME_START_UNITS;
+        var frameUnits = DAY_UNITS;
+        var frameStartMinutes = FRAME_START_MINUTES;
+        var frameMinutes = DAY_MINUTES;
         var labelSteps = {};
+        var responseConfig = window.AITE_RESPONSE_CONFIG || {};
+        var minDurationUnits = Math.max(0, Number(responseConfig.minDurationUnits || 0));
+        var minDurationMinutes = Math.max(0, Number(responseConfig.minDurationMinutes || minDurationUnits * SLOT_MINUTES));
 
         cards.forEach(function (card) {
             var slotId = card.dataset.slotId;
@@ -523,7 +762,20 @@
             return (index - frameStart + frameUnits) % frameUnits;
         }
 
+        function displayUnits(info) {
+            return rangeOnlyView ? info.units : frameUnits;
+        }
+
+        function displayMinuteUnits(info) {
+            return rangeOnlyView ? info.units * SLOT_MINUTES : frameMinutes;
+        }
+
+        function visualToAbsForInfo(info, index) {
+            return rangeOnlyView ? info.start + index : visualToAbs(index);
+        }
+
         function isAllowedVisual(info, index) {
+            if (rangeOnlyView) return index >= 0 && index < info.units;
             var absolute = visualToAbs(index);
             return absolute >= info.start && absolute < info.end;
         }
@@ -533,6 +785,16 @@
             if (index % step !== 0 && index !== 18) return '';
             if (index === 18) return '24';
             return pad(hour);
+        }
+
+        function rangeLabelStep(width, units) {
+            var target = width < 430 ? 3 : (width < 680 ? 5 : 8);
+            return Math.max(1, Math.ceil(units / target));
+        }
+
+        function rangeTimeLabel(info, index, step) {
+            if (index !== 0 && index !== info.units - 1 && index % step !== 0) return '';
+            return timeText(info.start + index);
         }
 
         function visualParts(absStart, absEnd) {
@@ -549,14 +811,23 @@
             return parts;
         }
 
-        function appendVisualBlock(track, className, label, absStart, absEnd, onClick) {
-            visualParts(absStart, absEnd).forEach(function (part) {
+        function visualPartsForInfo(info, absStart, absEnd) {
+            if (!rangeOnlyView) return visualParts(absStart, absEnd);
+            absStart = Math.max(info.start, Math.min(info.end, absStart));
+            absEnd = Math.max(info.start, Math.min(info.end, absEnd));
+            if (absEnd <= absStart) return [];
+            return [{ start: absStart - info.start, end: absEnd - info.start }];
+        }
+
+        function appendVisualBlock(track, info, className, label, absStart, absEnd, onClick) {
+            var units = displayUnits(info);
+            visualPartsForInfo(info, absStart, absEnd).forEach(function (part) {
                 if (part.end <= part.start) return;
                 var block = document.createElement(onClick ? 'button' : 'div');
                 if (onClick) block.type = 'button';
                 block.className = className;
-                block.style.left = (part.start / frameUnits * 100) + '%';
-                block.style.width = ((part.end - part.start) / frameUnits * 100) + '%';
+                block.style.left = (part.start / units * 100) + '%';
+                block.style.width = ((part.end - part.start) / units * 100) + '%';
                 block.textContent = label;
                 if (onClick) {
                     block.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
@@ -584,18 +855,28 @@
             return parts;
         }
 
-        function appendBusyBlock(track, event) {
+        function visualMinutePartsForInfo(info, startMinute, endMinute) {
+            if (!rangeOnlyView) return visualMinuteParts(startMinute, endMinute);
+            var rangeStart = info.start * SLOT_MINUTES;
+            var rangeEnd = info.end * SLOT_MINUTES;
+            startMinute = Math.max(rangeStart, Math.min(rangeEnd, startMinute));
+            endMinute = Math.max(rangeStart, Math.min(rangeEnd, endMinute));
+            if (endMinute <= startMinute) return [];
+            return [{ start: startMinute - rangeStart, end: endMinute - rangeStart }];
+        }
+
+        function appendBusyBlock(track, info, event) {
             var startMinute = timeMinutes(event.start);
             var endMinute = timeMinutes(event.end);
             if (startMinute === null || endMinute === null || endMinute <= startMinute) return;
-            visualMinuteParts(startMinute, endMinute).forEach(function (part) {
+            var units = displayMinuteUnits(info);
+            visualMinutePartsForInfo(info, startMinute, endMinute).forEach(function (part) {
                 if (part.end <= part.start) return;
                 var block = document.createElement('div');
                 block.className = 'avail-busy-block';
-                block.style.left = (part.start / frameMinutes * 100) + '%';
-                block.style.width = ((part.end - part.start) / frameMinutes * 100) + '%';
+                block.style.left = (part.start / units * 100) + '%';
+                block.style.width = ((part.end - part.start) / units * 100) + '%';
                 block.dataset.tooltip = eventTitle(event);
-                block.title = eventTitle(event) + ' ' + event.start + '-' + event.end;
                 block.tabIndex = 0;
                 block.setAttribute('aria-label', eventTitle(event) + ' ' + event.start + '-' + event.end);
                 var label = document.createElement('span');
@@ -607,18 +888,20 @@
         }
 
         function appendRangeBlock(track, info, range, index) {
-            visualParts(info.start + range.start, info.start + range.end).forEach(function (part) {
+            var units = displayUnits(info);
+            visualPartsForInfo(info, info.start + range.start, info.start + range.end).forEach(function (part) {
                 if (part.end <= part.start) return;
                 var block = document.createElement('button');
                 block.type = 'button';
                 block.className = 'avail-block';
-                block.style.left = (part.start / frameUnits * 100) + '%';
-                block.style.width = ((part.end - part.start) / frameUnits * 100) + '%';
+                block.dataset.tooltip = timeText(info.start + range.start) + '-' + timeText(info.start + range.end);
+                block.style.left = (part.start / units * 100) + '%';
+                block.style.width = ((part.end - part.start) / units * 100) + '%';
 
                 var left = document.createElement('span');
                 left.className = 'range-handle left';
-                left.textContent = '‹';
-                left.setAttribute('aria-label', '開始時間を変更');
+                left.setAttribute('aria-label', tr('js.change_start'));
+                left.appendChild(icon('nav-arrow-left'));
 
                 var text = document.createElement('span');
                 text.className = 'range-text';
@@ -626,8 +909,8 @@
 
                 var right = document.createElement('span');
                 right.className = 'range-handle right';
-                right.textContent = '›';
-                right.setAttribute('aria-label', '終了時間を変更');
+                right.setAttribute('aria-label', tr('js.change_end'));
+                right.appendChild(icon('nav-arrow-right'));
 
                 block.appendChild(left);
                 block.appendChild(text);
@@ -647,7 +930,7 @@
                     e.stopPropagation();
                 });
                 block.addEventListener('click', function (e) {
-                    if (e.target.classList.contains('range-handle')) return;
+                    if (e.target.closest('.range-handle')) return;
                     e.stopPropagation();
                     removeRange(info.slotId, range.start, range.end);
                 });
@@ -670,6 +953,13 @@
 
         function addRange(slotId, start, end) {
             if (end <= start) return;
+            if (minDurationUnits > 0 && end - start < minDurationUnits) {
+                var message = document.getElementById('editMessage');
+                if (message) message.textContent = tr('js.min_duration_required', minDurationMinutes);
+                return;
+            }
+            var message = document.getElementById('editMessage');
+            if (message) message.textContent = '';
             selections[slotId] = mergeRanges((selections[slotId] || []).concat([{ start: start, end: end }]));
             renderAll();
         }
@@ -700,7 +990,7 @@
         }
 
         function eventTitle(event) {
-            return String(event.title || event.name || event.summary || event.schedule_name || event.scheduleName || '予定あり');
+            return String(event.title || event.name || event.summary || event.schedule_name || event.scheduleName || tr('js.busy_default_title'));
         }
 
         function eventStart(event) {
@@ -721,7 +1011,7 @@
             if (!events.length) return;
 
             var title = document.createElement('h4');
-            title.textContent = 'AIが確認した予定（保存されません）';
+            title.textContent = tr('js.ai_busy_title');
             busyList.appendChild(title);
 
             events.forEach(function (event) {
@@ -744,23 +1034,25 @@
             if (!info || !track || !list) return;
 
             track.innerHTML = '';
-            labelSteps[info.slotId] = labelSteps[info.slotId] || labelStepForWidth(track.clientWidth || window.innerWidth);
+            var width = track.clientWidth || window.innerWidth;
+            labelSteps[info.slotId] = rangeOnlyView ? rangeLabelStep(width, info.units) : labelStepForWidth(width);
+            var units = displayUnits(info);
             var labelRow = document.createElement('div');
             labelRow.className = 'avail-label-row';
-            labelRow.style.gridTemplateColumns = 'repeat(24, minmax(0, 1fr))';
+            labelRow.style.gridTemplateColumns = 'repeat(' + (rangeOnlyView ? units : 24) + ', minmax(0, 1fr))';
             track.appendChild(labelRow);
-            for (var l = 0; l < 24; l++) {
+            for (var l = 0; l < (rangeOnlyView ? units : 24); l++) {
                 var label = document.createElement('div');
                 label.className = 'avail-label';
-                label.textContent = visualHourLabel(l, labelSteps[info.slotId]);
+                label.textContent = rangeOnlyView ? rangeTimeLabel(info, l, labelSteps[info.slotId]) : visualHourLabel(l, labelSteps[info.slotId]);
                 labelRow.appendChild(label);
             }
 
             var selectRow = document.createElement('div');
             selectRow.className = 'avail-select-row';
-            selectRow.style.gridTemplateColumns = 'repeat(' + frameUnits + ', minmax(0, 1fr))';
+            selectRow.style.gridTemplateColumns = 'repeat(' + units + ', minmax(0, 1fr))';
             track.appendChild(selectRow);
-            for (var i = 0; i < frameUnits; i++) {
+            for (var i = 0; i < units; i++) {
                 var cell = document.createElement('button');
                 cell.type = 'button';
                 cell.className = 'avail-cell';
@@ -769,12 +1061,12 @@
                     cell.classList.add('disabled');
                     cell.disabled = true;
                 }
-                cell.setAttribute('aria-label', timeText(visualToAbs(i)));
+                cell.setAttribute('aria-label', timeText(visualToAbsForInfo(info, i)));
                 selectRow.appendChild(cell);
             }
 
             (busyEvents[info.slotId] || []).forEach(function (event) {
-                appendBusyBlock(track, event);
+                appendBusyBlock(track, info, event);
             });
 
             (selections[info.slotId] || []).forEach(function (range, index) {
@@ -786,12 +1078,12 @@
                 var visualEnd = Math.max(drag.start, drag.end) + 1;
                 var absValues = [];
                 for (var v = visualStart; v < visualEnd; v++) {
-                    if (isAllowedVisual(info, v)) absValues.push(visualToAbs(v));
+                    if (isAllowedVisual(info, v)) absValues.push(visualToAbsForInfo(info, v));
                 }
                 if (absValues.length) {
                     var absStart = Math.min.apply(null, absValues);
                     var absEnd = Math.max.apply(null, absValues) + 1;
-                    appendVisualBlock(track, 'avail-block preview', timeText(absStart) + '-' + timeText(absEnd), absStart, absEnd);
+                    appendVisualBlock(track, info, 'avail-block preview', timeText(absStart) + '-' + timeText(absEnd), absStart, absEnd);
                 }
             }
 
@@ -799,14 +1091,17 @@
             if (!(selections[info.slotId] || []).length) {
                 var empty = document.createElement('p');
                 empty.className = 'muted';
-                empty.textContent = 'OK範囲は未選択です。';
+                empty.textContent = tr('js.no_ok_selected');
                 list.appendChild(empty);
             } else {
                 selections[info.slotId].forEach(function (range) {
                     var chip = document.createElement('button');
                     chip.type = 'button';
                     chip.className = 'slot-chip';
-                    chip.textContent = timeText(info.start + range.start) + '-' + timeText(info.start + range.end) + '  ×';
+                    var label = document.createElement('span');
+                    label.textContent = timeText(info.start + range.start) + '-' + timeText(info.start + range.end);
+                    chip.appendChild(label);
+                    chip.appendChild(icon('xmark'));
                     chip.addEventListener('click', function () {
                         removeRange(info.slotId, range.start, range.end);
                     });
@@ -827,7 +1122,7 @@
             if (!info || !track) return;
             if (window.ResizeObserver) {
                 var observer = new ResizeObserver(function (entries) {
-                    var nextStep = labelStepForWidth(entries[0].contentRect.width);
+                    var nextStep = rangeOnlyView ? rangeLabelStep(entries[0].contentRect.width, info.units) : labelStepForWidth(entries[0].contentRect.width);
                     if (nextStep !== labelSteps[info.slotId]) {
                         labelSteps[info.slotId] = nextStep;
                         renderCard(card);
@@ -855,12 +1150,26 @@
                     var info = cardInfo(card);
                     var track = card.querySelector('.availability-track');
                     if (!info || !track) return;
-                    var nextStep = labelStepForWidth(track.clientWidth);
+                    var nextStep = rangeOnlyView ? rangeLabelStep(track.clientWidth, info.units) : labelStepForWidth(track.clientWidth);
                     if (nextStep !== labelSteps[info.slotId]) {
                         labelSteps[info.slotId] = nextStep;
                         renderCard(card);
                     }
                 });
+            });
+        }
+
+        if (viewToggle) {
+            viewToggle.textContent = viewToggle.dataset.fullLabel;
+            viewToggle.classList.add('active');
+            viewToggle.addEventListener('click', function () {
+                rangeOnlyView = !rangeOnlyView;
+                drag = null;
+                resize = null;
+                labelSteps = {};
+                viewToggle.textContent = rangeOnlyView ? viewToggle.dataset.fullLabel : viewToggle.dataset.rangeLabel;
+                viewToggle.classList.toggle('active', rangeOnlyView);
+                renderAll();
             });
         }
 
@@ -871,14 +1180,16 @@
                 var ranges = selections[resize.slotId] || [];
                 var current = ranges[resize.index];
                 if (!resizeInfo || !resizeTrack || !current) return;
-                var visual = pointerIndex(resizeTrack, e, frameUnits);
+                var visual = pointerIndex(resizeTrack, e, displayUnits(resizeInfo));
                 if (!isAllowedVisual(resizeInfo, visual)) return;
-                var absolute = visualToAbs(visual);
+                var absolute = visualToAbsForInfo(resizeInfo, visual);
                 var next = { start: current.start, end: current.end };
                 if (resize.edge === 'start') {
                     next.start = Math.max(0, Math.min(absolute - resizeInfo.start, current.end - 1));
+                    if (minDurationUnits > 0) next.start = Math.max(0, Math.min(next.start, current.end - minDurationUnits));
                 } else {
                     next.end = Math.min(resizeInfo.units, Math.max(absolute - resizeInfo.start + 1, current.start + 1));
+                    if (minDurationUnits > 0) next.end = Math.min(resizeInfo.units, Math.max(next.end, current.start + minDurationUnits));
                 }
                 setRange(resize.slotId, resize.index, next, false);
                 return;
@@ -887,7 +1198,7 @@
             var track = drag.card.querySelector('.avail-select-row');
             var info = cardInfo(drag.card);
             if (!track || !info) return;
-            var next = pointerIndex(track, e, frameUnits);
+            var next = pointerIndex(track, e, displayUnits(info));
             if (!isAllowedVisual(info, next)) return;
             if (next !== drag.end) {
                 drag.end = next;
@@ -912,7 +1223,7 @@
             var visualEnd = Math.max(current.start, current.end) + 1;
             var absValues = [];
             for (var v = visualStart; v < visualEnd; v++) {
-                if (isAllowedVisual(info, v)) absValues.push(visualToAbs(v));
+                if (isAllowedVisual(info, v)) absValues.push(visualToAbsForInfo(info, v));
             }
             if (!absValues.length) return;
             var absStart = Math.min.apply(null, absValues);
@@ -940,6 +1251,7 @@
                     start -= info.start;
                     end -= info.start;
                     if (start < 0 || end > info.units || end <= start) return;
+                    if (minDurationUnits > 0 && end - start < minDurationUnits) return;
                     selections[slotId] = mergeRanges((selections[slotId] || []).concat([{ start: start, end: end }]));
                     applied++;
                 });
@@ -956,7 +1268,7 @@
                         var start = timeMinutes(event.start);
                         var end = timeMinutes(event.end);
                         if (start === null || end === null || end <= start) return false;
-                        return start < info.end * 30 && end > info.start * 30;
+                        return start < info.end * SLOT_MINUTES && end > info.start * SLOT_MINUTES;
                     });
                     busyApplied += busyEvents[slotId].length;
                 }
@@ -977,6 +1289,7 @@
                 var start = Number(range.start);
                 var end = Number(range.end);
                 if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end > info.units || end <= start) return;
+                if (minDurationUnits > 0 && end - start < minDurationUnits) return;
                 selections[slotId].push({ start: start, end: end });
             });
             Object.keys(selections).forEach(function (slotId) {
@@ -1010,7 +1323,7 @@
                 if (message) message.textContent = '';
                 var eventId = form.querySelector('input[name="event_id"]').value;
                 if (!nameInput.value.trim() || !passwordInput.value) {
-                    if (message) message.textContent = '名前と編集用パスワードを入力してください。';
+                    if (message) message.textContent = tr('error.response_required');
                     return;
                 }
 
@@ -1018,23 +1331,131 @@
                 body.set('event_id', eventId);
                 body.set('name', nameInput.value.trim());
                 body.set('edit_password', passwordInput.value);
+                body.set('lang', lang);
                 fetch('api.php?action=load_response', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
                     body: body.toString()
                 }).then(function (response) {
                     return response.json().then(function (json) {
-                        if (!response.ok || !json.ok) throw new Error(json.error || '読み込みに失敗しました。');
+                        if (!response.ok || !json.ok) throw new Error(json.error || tr('js.load_failed'));
                         return json;
                     });
                 }).then(function (json) {
                     if (window.aiteSetAvailability) window.aiteSetAvailability(json.ranges || []);
-                    if (message) message.textContent = '前回回答を読み込みました。';
+                    if (window.aiteSetDateOnlyAnswers) window.aiteSetDateOnlyAnswers(json.answers || []);
+                    if (window.aiteShowResponseEditor) window.aiteShowResponseEditor();
+                    if (message) message.textContent = tr('js.previous_loaded');
                 }).catch(function (error) {
                     if (message) message.textContent = error.message;
                 });
             });
         }
+    }
+
+    function initDateOnlyResponse() {
+        if (!window.AITE_RESPONSE_CONFIG || !window.AITE_RESPONSE_CONFIG.dateOnly) return;
+        var checkboxes = Array.prototype.slice.call(document.querySelectorAll('.date-answer-card input[type="checkbox"][data-slot-id]'));
+        if (!checkboxes.length) return;
+
+        function dateEventTitle(event) {
+            return String(event.title || event.name || event.summary || event.schedule_name || event.scheduleName || tr('js.busy_default_title'));
+        }
+
+        function dateEventStart(event) {
+            return event.start || event.from || event.start_time || event.startTime || '';
+        }
+
+        function dateEventEnd(event) {
+            return event.end || event.to || event.end_time || event.endTime || '';
+        }
+
+        function renderDateBusyEvents(slotId, events) {
+            var list = document.querySelector('.date-busy-list[data-slot-id="' + slotId + '"]');
+            if (!list) return;
+            list.innerHTML = '';
+            list.hidden = !events.length;
+            if (!events.length) return;
+
+            var title = document.createElement('h4');
+            title.textContent = tr('js.date_busy_title');
+            list.appendChild(title);
+
+            events.forEach(function (event) {
+                var row = document.createElement('div');
+                row.className = 'ai-busy-item';
+                var name = document.createElement('strong');
+                name.textContent = dateEventTitle(event);
+                var time = document.createElement('span');
+                var start = dateEventStart(event);
+                var end = dateEventEnd(event);
+                time.textContent = start && end ? start + '-' + end : (start || end || '');
+                row.appendChild(name);
+                if (time.textContent) row.appendChild(time);
+                list.appendChild(row);
+            });
+        }
+
+        window.aiteSetDateOnlyAnswers = function (answers) {
+            var ok = {};
+            (answers || []).forEach(function (answer) {
+                var slotId = answer.slot_id || answer.slotId || answer.id;
+                if (normalizeStatus(answer.status || answer.answer || answer.value) === 'o') ok[slotId] = true;
+            });
+            checkboxes.forEach(function (input) {
+                input.checked = !!ok[input.dataset.slotId];
+            });
+        };
+
+        window.aiteApplyDateOnlyAnswers = function (items) {
+            var applied = 0;
+            var bySlot = {};
+            var busyBySlot = {};
+            (items || []).forEach(function (item) {
+                var slotId = item.slot_id || item.id || item.slotId;
+                var status = normalizeStatus(item.status || item.answer || item.value);
+                if (!slotId) return;
+                if (status) bySlot[slotId] = status;
+                var schedules = item.busy_events || item.busy || item.events || [];
+                busyBySlot[slotId] = Array.isArray(schedules) ? schedules : [];
+            });
+            checkboxes.forEach(function (input) {
+                var slotId = input.dataset.slotId;
+                if (Object.prototype.hasOwnProperty.call(bySlot, slotId)) {
+                    input.checked = bySlot[slotId] === 'o';
+                    applied++;
+                }
+                renderDateBusyEvents(slotId, busyBySlot[slotId] || []);
+            });
+            return applied;
+        };
+    }
+
+    function initAiModal() {
+        var modal = document.getElementById('aiModal');
+        var openButton = document.getElementById('openAiModal');
+        var closeButton = document.getElementById('closeAiModal');
+        if (!modal || !openButton) return;
+
+        function openModal() {
+            modal.hidden = false;
+            var copyButton = document.getElementById('copyPrompt');
+            if (copyButton) copyButton.focus();
+        }
+
+        function closeModal() {
+            modal.hidden = true;
+            openButton.focus();
+        }
+
+        openButton.addEventListener('click', openModal);
+        if (closeButton) closeButton.addEventListener('click', closeModal);
+        modal.addEventListener('click', function (e) {
+            if (e.target === modal) closeModal();
+        });
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && !modal.hidden) closeModal();
+        });
     }
 
     function initAi() {
@@ -1044,6 +1465,9 @@
 
         var message = document.getElementById('aiMessage');
         var slots = [];
+        if (textarea && window.AITE_RESPONSE_CONFIG && window.AITE_RESPONSE_CONFIG.dateOnly) {
+            textarea.placeholder = '[{"slot_id":"slot_xxx","status":"x","busy_events":[{"title":"' + tr('js.prompt_busy_title') + '","start":"13:00","end":"14:00"}]}]';
+        }
         if (copyButton) {
             try {
                 slots = JSON.parse(copyButton.getAttribute('data-slots') || '[]');
@@ -1051,35 +1475,45 @@
                 slots = [];
             }
             copyButton.addEventListener('click', function () {
-                var rangeMode = !!document.getElementById('availabilityInput');
+                var dateOnlyMode = !!(window.AITE_RESPONSE_CONFIG && window.AITE_RESPONSE_CONFIG.dateOnly);
+                var rangeMode = !!document.getElementById('availabilityInput') && !dateOnlyMode;
                 var example = slots.slice(0, 2).map(function (slot) {
                     var parsed = parseSlot(slot.text);
+                    if (dateOnlyMode) {
+                        return '  {"slot_id":"' + slot.id + '","status":"x","busy_events":[{"title":"' + tr('js.prompt_busy_title') + '","start":"13:00","end":"14:00"}]}';
+                    }
                     if (rangeMode && parsed) {
+                        var minUnits = window.AITE_RESPONSE_CONFIG ? Number(window.AITE_RESPONSE_CONFIG.minDurationUnits || 0) : 0;
+                        if (minUnits > 0 && parsed.end - parsed.start >= minUnits) {
+                            return '  {"slot_id":"' + slot.id + '","ok_ranges":[{"start":"' + timeText(parsed.start) + '","end":"' + timeText(parsed.start + minUnits) + '"}],"busy_events":[]}';
+                        }
                         var busyEnd = Math.min(parsed.start + 1, parsed.end);
                         var okRanges = busyEnd < parsed.end ? '[{"start":"' + timeText(busyEnd) + '","end":"' + timeText(parsed.end) + '"}]' : '[]';
-                        return '  {"slot_id":"' + slot.id + '","ok_ranges":' + okRanges + ',"busy_events":[{"title":"予定名","start":"' + timeText(parsed.start) + '","end":"' + timeText(busyEnd) + '"}]}';
+                        return '  {"slot_id":"' + slot.id + '","ok_ranges":' + okRanges + ',"busy_events":[{"title":"' + tr('js.prompt_busy_title') + '","start":"' + timeText(parsed.start) + '","end":"' + timeText(busyEnd) + '"}]}';
                     }
                     return '  {"slot_id":"' + slot.id + '","status":"o"}';
                 }).join(',\n');
                 var prompt = [
-                    '以下の候補日時について、私の予定表を確認してください。',
-                    rangeMode ? '参加可能な時間帯だけを ok_ranges に入れてください。' : '参加可能なら o',
-                    rangeMode ? '候補時間の一部だけ参加可能な場合は、その範囲だけを返してください。' : '未定なら maybe',
-                    rangeMode ? '候補時間内に入っている参加できない予定は、すべて busy_events に予定名 title、開始 start、終了 end を入れてください。' : '参加できないなら x',
-                    rangeMode ? 'start と end は必ず HH:MM 形式にしてください。' : '',
-                    rangeMode ? '参加可能な時間がなければ ok_ranges は空配列にしてください。予定がなければ busy_events は空配列にしてください。' : '',
-                    '必ずJSONだけを返してください。',
+                    tr('js.prompt_intro'),
+                    dateOnlyMode ? tr('js.prompt_available_dates') : (rangeMode ? tr('js.prompt_ok_ranges') : tr('js.prompt_status_o')),
+                    dateOnlyMode ? tr('js.prompt_date_busy_events') : '',
+                    rangeMode && window.AITE_RESPONSE_CONFIG && Number(window.AITE_RESPONSE_CONFIG.minDurationMinutes || 0) > 0 ? tr('js.prompt_min_duration', Number(window.AITE_RESPONSE_CONFIG.minDurationMinutes || 0)) : '',
+                    dateOnlyMode ? '' : (rangeMode ? tr('js.prompt_partial') : tr('js.prompt_status_maybe')),
+                    dateOnlyMode ? '' : (rangeMode ? tr('js.prompt_busy_events') : tr('js.prompt_status_x')),
+                    rangeMode ? tr('js.prompt_hhmm') : '',
+                    rangeMode ? tr('js.prompt_empty') : '',
+                    tr('js.prompt_json_only'),
                     '[',
-                    example || (rangeMode ? '  {"slot_id":"slot_xxx","ok_ranges":[{"start":"13:00","end":"14:00"}],"busy_events":[{"title":"予定名","start":"14:00","end":"15:00"}]}' : '  {"slot_id":"slot_xxx","status":"o"}'),
+                    example || (rangeMode ? '  {"slot_id":"slot_xxx","ok_ranges":[{"start":"13:00","end":"14:00"}],"busy_events":[{"title":"' + tr('js.prompt_busy_title') + '","start":"14:00","end":"15:00"}]}' : '  {"slot_id":"slot_xxx","status":"o"}'),
                     ']',
-                    '候補日時'
+                    tr('js.prompt_slots')
                 ].filter(Boolean).concat(slots.map(function (slot) {
                     return slot.id + ': ' + (slot.label || slotLabel(slot.text));
                 })).join('\n');
 
                 if (navigator.clipboard && navigator.clipboard.writeText) {
                     navigator.clipboard.writeText(prompt).then(function () {
-                        if (message) message.textContent = 'コピーしました。';
+                        if (message) message.textContent = tr('js.copied');
                     }).catch(function () {
                         fallbackCopy(prompt, message);
                     });
@@ -1097,8 +1531,14 @@
             try {
                 var parsed = JSON.parse(textarea.value);
                 var items = Array.isArray(parsed) ? parsed : (parsed.answers || []);
-                if (!Array.isArray(items)) throw new Error('配列JSONではありません。');
+                if (!Array.isArray(items)) throw new Error(tr('js.json_array_error'));
                 var applied = 0;
+                if (window.aiteApplyDateOnlyAnswers) {
+                    applied = window.aiteApplyDateOnlyAnswers(items);
+                    if (!applied) throw new Error(tr('js.no_applicable_items'));
+                    if (message) message.textContent = tr('js.ai_applied_count', applied);
+                    return;
+                }
                 items.forEach(function (item) {
                     if (window.aiteApplyAvailability) return;
                     var slotId = item.slot_id || item.id || item.slotId;
@@ -1117,14 +1557,14 @@
                 });
                 if (window.aiteApplyAvailability) {
                     var result = window.aiteApplyAvailability(items);
-                    if (!result.ranges && !result.busy) throw new Error('反映できる候補がありませんでした。');
-                    if (message) message.textContent = result.ranges + '件のOK範囲、' + result.busy + '件の予定を自動反映しました。';
+                    if (!result.ranges && !result.busy) throw new Error(tr('js.no_applicable_items'));
+                    if (message) message.textContent = tr('js.ai_applied_ranges_busy', result.ranges, result.busy);
                     return;
                 }
-                if (!applied) throw new Error('反映できる候補がありませんでした。');
-                if (message) message.textContent = applied + '件自動反映しました。';
+                if (!applied) throw new Error(tr('js.no_applicable_items'));
+                if (message) message.textContent = tr('js.ai_applied_count', applied);
             } catch (e) {
-                if (showErrors && message) message.textContent = 'JSONを確認してください: ' + e.message;
+                if (showErrors && message) message.textContent = tr('js.check_json', e.message);
             }
         }
 
@@ -1150,13 +1590,214 @@
         area.select();
         document.execCommand('copy');
         document.body.removeChild(area);
-        if (message) message.textContent = 'コピーしました。';
+        if (message) message.textContent = tr('js.copied');
+    }
+
+    function copyText(text) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            return navigator.clipboard.writeText(text);
+        }
+        return new Promise(function (resolve) {
+            var area = document.createElement('textarea');
+            area.value = text;
+            document.body.appendChild(area);
+            area.select();
+            document.execCommand('copy');
+            document.body.removeChild(area);
+            resolve();
+        });
+    }
+
+    function initCopyUrlButtons() {
+        document.querySelectorAll('.copy-url-button').forEach(function (button) {
+            var defaultText = button.textContent;
+            button.addEventListener('click', function () {
+                var value = button.getAttribute('data-copy-value') || '';
+                if (!value) return;
+                copyText(value).then(function () {
+                    button.textContent = tr('js.copied');
+                    button.classList.add('copied');
+                    window.setTimeout(function () {
+                        button.textContent = defaultText;
+                        button.classList.remove('copied');
+                    }, 1600);
+                });
+            });
+        });
+    }
+
+    function historyItems() {
+        try {
+            var items = JSON.parse(localStorage.getItem('aiteRecentEvents') || '[]');
+            return Array.isArray(items) ? items : [];
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function saveHistoryItems(items) {
+        try {
+            localStorage.setItem('aiteRecentEvents', JSON.stringify(items.slice(0, 12)));
+        } catch (e) {
+            // localStorage can be unavailable in restricted browser modes.
+        }
+    }
+
+    function historyType(item) {
+        if (item && (item.type === 'admin' || item.type === 'response')) return item.type;
+        return item && String(item.url || '').indexOf('admin.php') >= 0 ? 'admin' : 'response';
+    }
+
+    function historyTypeLabel(type) {
+        return type === 'admin' ? tr('js.history_admin') : tr('js.history_response');
+    }
+
+    function recordEventHistory() {
+        var item = window.AITE_EVENT_HISTORY_ITEM;
+        if (!item || !item.title || !item.url || !window.localStorage) return;
+        var items = historyItems().filter(function (candidate) {
+            return candidate.url !== item.url;
+        });
+        items.unshift({
+            title: String(item.title),
+            url: String(item.url),
+            type: historyType(item),
+            viewedAt: Date.now()
+        });
+        saveHistoryItems(items);
+    }
+
+    function renderRecentEvents() {
+        var section = document.getElementById('recentEvents');
+        var list = document.getElementById('recentEventList');
+        if (!section || !list || !window.localStorage) return;
+
+        var items = historyItems();
+        section.hidden = items.length === 0;
+        list.innerHTML = '';
+        items.forEach(function (item) {
+            if (!item || !item.title || !item.url) return;
+
+            var card = document.createElement('article');
+            card.className = 'recent-event-card';
+
+            var link = document.createElement('a');
+            link.href = item.url;
+            link.className = 'recent-event-link';
+
+            var title = document.createElement('strong');
+            title.textContent = item.title;
+            var type = document.createElement('span');
+            type.className = 'recent-event-type';
+            type.textContent = historyTypeLabel(historyType(item));
+            link.appendChild(title);
+            link.appendChild(type);
+
+            var remove = document.createElement('button');
+            remove.type = 'button';
+            remove.className = 'icon-button recent-event-delete';
+            remove.setAttribute('aria-label', tr('js.delete_history'));
+            remove.title = tr('js.delete_history');
+            remove.appendChild(icon('trash'));
+            remove.addEventListener('click', function () {
+                saveHistoryItems(historyItems().filter(function (candidate) {
+                    return candidate.url !== item.url;
+                }));
+                renderRecentEvents();
+            });
+
+            card.appendChild(link);
+            card.appendChild(remove);
+            list.appendChild(card);
+        });
+        section.hidden = list.children.length === 0;
+    }
+
+    function answeredItems() {
+        try {
+            var items = JSON.parse(localStorage.getItem('aiteAnsweredResponses') || '[]');
+            return Array.isArray(items) ? items : [];
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function saveAnsweredItems(items) {
+        try {
+            localStorage.setItem('aiteAnsweredResponses', JSON.stringify(items.slice(0, 50)));
+        } catch (e) {
+            // localStorage can be unavailable in restricted browser modes.
+        }
+    }
+
+    function currentResponseState() {
+        var state = window.AITE_RESPONSE_STATE || null;
+        if (!state || !state.id || !state.url) return null;
+        return state;
+    }
+
+    function recordAnsweredResponse() {
+        var state = currentResponseState();
+        if (!state || !state.saved || !window.localStorage) return;
+        var items = answeredItems().filter(function (item) {
+            return item.id !== state.id && item.url !== state.url;
+        });
+        items.unshift({
+            id: String(state.id),
+            title: String(state.title || ''),
+            url: String(state.url),
+            answeredAt: Date.now()
+        });
+        saveAnsweredItems(items);
+    }
+
+    function hasAnsweredCurrentResponse() {
+        var state = currentResponseState();
+        if (!state || !window.localStorage) return false;
+        return answeredItems().some(function (item) {
+            return item && (item.id === state.id || item.url === state.url);
+        });
+    }
+
+    function initAnsweredResponseMode() {
+        var form = document.getElementById('responseForm');
+        var notice = document.getElementById('answeredNotice');
+        var answerList = document.getElementById('answerList');
+        var submit = document.getElementById('responseSubmit');
+        var aiButton = document.getElementById('openAiModal');
+        if (!form || !answerList || !submit) return;
+
+        function setEditing(enabled) {
+            answerList.hidden = !enabled;
+            submit.hidden = !enabled;
+            if (aiButton) aiButton.hidden = !enabled;
+            form.classList.toggle('response-edit-minimal', !enabled);
+        }
+
+        window.aiteShowResponseEditor = function () {
+            setEditing(true);
+        };
+
+        if (!hasAnsweredCurrentResponse()) {
+            setEditing(true);
+            return;
+        }
+
+        if (notice) notice.hidden = false;
+        setEditing(false);
     }
 
     document.addEventListener('DOMContentLoaded', function () {
+        recordEventHistory();
+        recordAnsweredResponse();
+        renderRecentEvents();
+        initCopyUrlButtons();
         initCreate();
+        initAnsweredResponseMode();
         initAvailabilityResponse();
+        initDateOnlyResponse();
         initResponseEdit();
+        initAiModal();
         initAi();
     });
 }());

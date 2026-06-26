@@ -32,6 +32,8 @@ function init_db(PDO $pdo): void
             title TEXT NOT NULL,
             description TEXT NOT NULL DEFAULT '',
             admin_token TEXT NOT NULL,
+            min_duration_units INTEGER NOT NULL DEFAULT 0,
+            date_only INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
@@ -81,6 +83,16 @@ function init_db(PDO $pdo): void
         $pdo->exec("ALTER TABLE events ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''");
         $pdo->exec("UPDATE events SET updated_at = created_at WHERE updated_at = ''");
     }
+
+    if (!db_has_column($pdo, 'events', 'min_duration_units')) {
+        $pdo->exec("ALTER TABLE events ADD COLUMN min_duration_units INTEGER NOT NULL DEFAULT 0");
+    }
+
+    if (!db_has_column($pdo, 'events', 'date_only')) {
+        $pdo->exec("ALTER TABLE events ADD COLUMN date_only INTEGER NOT NULL DEFAULT 0");
+    }
+
+    migrate_answer_ranges_to_current_unit($pdo);
 }
 
 function db_has_column(PDO $pdo, string $table, string $columnName): bool
@@ -94,9 +106,395 @@ function db_has_column(PDO $pdo, string $table, string $columnName): bool
     return false;
 }
 
+function time_text_to_index(string $time): ?int
+{
+    if (!preg_match('/^(\d{2}):(\d{2})$/', $time, $m)) {
+        return null;
+    }
+    $minutes = (int)$m[1] * 60 + (int)$m[2];
+    if ($minutes < 0 || $minutes > 1440 || $minutes % 10 !== 0) {
+        return null;
+    }
+    return intdiv($minutes, 10);
+}
+
+function migrate_answer_ranges_to_current_unit(PDO $pdo): void
+{
+    $stmt = $pdo->query('
+        SELECT ar.id, ar.start_time, ar.end_time, ar.start_index, ar.end_index, s.slot_text
+        FROM answer_ranges ar
+        JOIN slots s ON s.id = ar.slot_id
+    ');
+    $update = $pdo->prepare('UPDATE answer_ranges SET start_index = ?, end_index = ? WHERE id = ?');
+    foreach ($stmt->fetchAll() as $range) {
+        $slot = parse_slot_text((string)$range['slot_text']);
+        $absoluteStart = time_text_to_index((string)$range['start_time']);
+        $absoluteEnd = time_text_to_index((string)$range['end_time']);
+        if (!$slot || $absoluteStart === null || $absoluteEnd === null) {
+            continue;
+        }
+        $start = $absoluteStart - (int)$slot['start'];
+        $end = $absoluteEnd - (int)$slot['start'];
+        if ($start < 0 || $end > ((int)$slot['end'] - (int)$slot['start']) || $end <= $start) {
+            continue;
+        }
+        if ((int)$range['start_index'] !== $start || (int)$range['end_index'] !== $end) {
+            $update->execute([$start, $end, (int)$range['id']]);
+        }
+    }
+}
+
 function h(?string $value): string
 {
     return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
+}
+
+function translations(): array
+{
+    return [
+        'ja' => [
+            'app.description' => 'AIに聞いて、貼るだけ。予定調整をもっと軽く。',
+            'admin.mode' => '管理者モード',
+            'home.hero' => 'AIに聞いて、貼るだけ。',
+            'home.lead' => '予定調整をもっと軽く。',
+            'home.create' => 'イベントを作成する',
+            'home.recent_events' => '最近開いたイベント',
+            'home.history_response' => '回答者リンク',
+            'home.history_admin' => '作成者リンク',
+            'create.title' => 'イベント作成 - aite',
+            'create.heading' => 'イベントを作成',
+            'create.event_name' => 'イベント名',
+            'create.event_name_placeholder' => '例: 企画ミーティング',
+            'create.description' => '説明',
+            'create.add_description' => '説明を追記',
+            'create.description_placeholder' => '参加者に伝えたいこと',
+            'create.add_min_duration' => '最低必要時間を設定',
+            'create.min_duration' => '最低必要時間（分）',
+            'create.min_duration_hint' => '回答者はこの時間より短いOK範囲を入力できません。',
+            'create.date_only_mode' => '日程だけ確認する',
+            'create.date_only_hint' => 'ONにすると時間指定なしで候補日だけを選び、回答者は空いている日だけを回答します。',
+            'create.slots' => '候補日時',
+            'create.slots_locked' => 'まずイベント名を入力してください。',
+            'create.manual_mode' => '手入力モード',
+            'create.prev_month' => '前の月',
+            'create.next_month' => '次の月',
+            'create.close' => '閉じる',
+            'create.timeline_hint' => '06-05の枠で10分単位に横ドラッグ。作成済みブロックはクリックで削除。',
+            'create.date_only_timeline_hint' => '候補にしたい日をクリックしてください。作成済みの日付はもう一度クリックで削除できます。',
+            'create.manual_slots' => '候補日時を直接入力',
+            'create.manual_dates' => '候補日を直接入力',
+            'create.apply' => '反映',
+            'create.selected' => '選択済み',
+            'create.submit' => '保存してURLを作成',
+            'event.not_found' => 'イベントが見つかりません。',
+            'event.saved' => '回答を保存しました。',
+            'event.already_answered' => 'あなたはすでに回答済みです。',
+            'event.already_answered_hint' => '集計を確認できます。回答の修正が必要な場合だけ、名前と編集用パスワードを入力して前回回答を読み込んでください。',
+            'event.ai_heading' => 'AIで一括入力',
+            'event.open_ai' => 'AIで一括入力',
+            'event.close_ai' => '閉じる',
+            'event.copy_prompt' => 'AIに聞く用プロンプトをコピー',
+            'event.ai_hint' => 'ChatGPTやGeminiなど、利用しているカレンダーとAI連携が取れている場合は、AIに聞く用プロンプトをコピーボタンを押してAIに指示を渡してください。AIから得られたjsonテキストを下のテキストエリアにペーストすることで、自動で予定入力ができます。',
+            'event.ai_answer' => 'AI回答をここへ貼る',
+            'event.name' => '名前',
+            'event.name_placeholder' => '山田 太郎',
+            'event.edit_password' => '編集用パスワード',
+            'event.edit_password_placeholder' => '未変更なら名前と同じ',
+            'event.load_previous' => '前回回答を読み込む',
+            'event.show_range_only' => '候補範囲だけ表示',
+            'event.show_full_day' => '06-05表示に戻す',
+            'event.drag_hint' => '06-05の枠内で、白い範囲だけドラッグできます。作成済みの範囲はクリックで削除できます。',
+            'event.date_only_hint' => '空いている日程を選択してください。',
+            'event.available_date' => '空いている',
+            'event.unsupported_slot' => 'この候補はドラッグ回答に対応した形式ではありません。',
+            'event.submit' => '回答を保存',
+            'event.summary' => '集計',
+            'event.best_overlap' => '最も重なる時間: ',
+            'event.overlap_aria' => '回答者の重なり',
+            'event.no_ok_ranges' => 'まだOK範囲はありません。',
+            'event.no_available_dates' => 'まだ空いている日程の回答はありません。',
+            'admin.title' => '管理 - %s - aite',
+            'admin.response_url' => '回答URL',
+            'admin.admin_url' => '管理URL',
+            'admin.open_response' => '回答画面を開く',
+            'admin.csv_download' => 'CSVダウンロード',
+            'admin.responses' => '回答一覧',
+            'admin.no_responses' => 'まだ回答はありません。',
+            'admin.system_title' => '管理者モード - aite',
+            'admin.invalid_token' => '管理者トークンが正しくありません。',
+            'admin.token' => '管理者トークン',
+            'admin.open_mode' => '管理者モードを開く',
+            'admin.event_deleted' => 'イベントを削除しました。',
+            'admin.database_reset' => 'データベースをリセットしました。',
+            'admin.event_count' => 'イベント数: ',
+            'admin.auto_delete' => '自動削除: 最終更新から1ヶ月後',
+            'admin.reset_confirm' => 'すべてのイベントと回答を削除します。実行しますか？',
+            'admin.reset_database' => 'データベースをリセット',
+            'admin.event_list' => '作成されているイベント一覧',
+            'admin.no_events' => '作成されているイベントはありません。',
+            'admin.event' => 'イベント',
+            'admin.created_at' => '作成日',
+            'admin.updated_at' => '最終更新',
+            'admin.slot_count' => '候補',
+            'admin.response_count' => '回答',
+            'admin.actions' => '操作',
+            'admin.event_admin' => '個別管理',
+            'admin.delete_confirm' => 'このイベントを削除します。実行しますか？',
+            'admin.delete' => '削除',
+            'common.name' => '名前',
+            'common.error' => 'エラー: ',
+            'common.person_count' => '%d人',
+            'common.no_overlap' => '重なりなし',
+            'error.wrong_password' => '編集用パスワードが違います。',
+            'error.previous_not_found' => '前回回答が見つかりません。',
+            'error.invalid_admin_url' => '管理URLが正しくありません。',
+            'error.create_required' => 'イベント名と候補日時を入力してください。',
+            'error.slot_30_minute_required' => '候補日時は YYYY-MM-DD HH:MM-HH:MM 形式で、開始・終了時刻を10分刻みにしてください。',
+            'error.min_duration_required' => 'OK範囲は最低%d分以上にしてください。',
+            'error.min_duration_invalid' => '最低必要時間は10分刻みで入力してください。',
+            'error.slot_min_duration_required' => '候補日時は最低必要時間以上にしてください。',
+            'error.date_required' => '候補日は YYYY-MM-DD 形式で入力してください。',
+            'error.response_required' => '名前と編集用パスワードを入力してください。',
+            'js.weekdays_short' => '日,月,火,水,木,金,土',
+            'js.year_suffix' => '年',
+            'js.month_suffix' => '月',
+            'js.change_start' => '開始時間を変更',
+            'js.change_end' => '終了時間を変更',
+            'js.no_slots' => 'まだ候補日時がありません。',
+            'js.create_slot_required' => '候補日時を1つ以上入力してください。',
+            'js.slot_30_minute_required' => '時間は10分刻みにしてください。',
+            'js.busy_default_title' => '予定あり',
+            'js.ai_busy_title' => 'AIが確認した予定（保存されません）',
+            'js.date_busy_title' => 'AIが確認した予定（判断材料）',
+            'js.no_ok_selected' => 'OK範囲は未選択です。',
+            'js.min_duration_required' => 'OK範囲は最低%d分以上にしてください。',
+            'js.slot_min_duration_required' => '候補日時は最低必要時間以上にしてください。',
+            'js.date_required' => '候補日は YYYY-MM-DD 形式で入力してください。',
+            'js.load_failed' => '読み込みに失敗しました。',
+            'js.previous_loaded' => '前回回答を読み込みました。',
+            'js.prompt_busy_title' => '予定名',
+            'js.prompt_intro' => '以下の候補日時について、私の予定表を確認してください。',
+            'js.prompt_ok_ranges' => '参加可能な時間帯だけを ok_ranges に入れてください。',
+            'js.prompt_available_dates' => '空いている候補日だけを status: "o" にしてください。空いていない日は status: "x" にしてください。',
+            'js.prompt_date_busy_events' => '完全に空いていない日でも、予定名から参加可能そうな場合は status は "x" のまま、busy_events に予定名 title、開始 start、終了 end を入れて判断材料として残してください。',
+            'js.prompt_min_duration' => 'ok_ranges は必ず%d分以上の範囲だけにしてください。',
+            'js.prompt_status_o' => '参加可能なら o',
+            'js.prompt_partial' => '候補時間の一部だけ参加可能な場合は、その範囲だけを返してください。',
+            'js.prompt_status_maybe' => '未定なら maybe',
+            'js.prompt_busy_events' => '候補時間内に入っている参加できない予定は、すべて busy_events に予定名 title、開始 start、終了 end を入れてください。',
+            'js.prompt_status_x' => '参加できないなら x',
+            'js.prompt_hhmm' => 'start と end は必ず HH:MM 形式にしてください。',
+            'js.prompt_empty' => '参加可能な時間がなければ ok_ranges は空配列にしてください。予定がなければ busy_events は空配列にしてください。',
+            'js.prompt_json_only' => '必ずJSONだけを返してください。',
+            'js.prompt_slots' => '候補日時',
+            'js.copied' => 'コピーしました。',
+            'js.copy_url' => 'URLをコピー',
+            'js.json_array_error' => '配列JSONではありません。',
+            'js.no_applicable_items' => '反映できる候補がありませんでした。',
+            'js.ai_applied_ranges_busy' => '%d件のOK範囲、%d件の予定を自動反映しました。',
+            'js.ai_applied_count' => '%d件自動反映しました。',
+            'js.check_json' => 'JSONを確認してください: %s',
+            'js.delete_history' => '履歴から削除',
+            'js.history_response' => '回答者リンク',
+            'js.history_admin' => '作成者リンク',
+        ],
+        'en' => [
+            'app.description' => 'Ask AI, paste the answer, and schedule with less friction.',
+            'admin.mode' => 'Admin mode',
+            'home.hero' => 'Ask AI, then paste.',
+            'home.lead' => 'Make scheduling lighter.',
+            'home.create' => 'Create an event',
+            'home.recent_events' => 'Recent events',
+            'home.history_response' => 'Response link',
+            'home.history_admin' => 'Creator link',
+            'create.title' => 'Create event - aite',
+            'create.heading' => 'Create event',
+            'create.event_name' => 'Event name',
+            'create.event_name_placeholder' => 'Example: Planning meeting',
+            'create.description' => 'Description',
+            'create.add_description' => 'Add a description',
+            'create.description_placeholder' => 'Notes for participants',
+            'create.add_min_duration' => 'Set minimum required time',
+            'create.min_duration' => 'Minimum required time (minutes)',
+            'create.min_duration_hint' => 'Respondents cannot enter available ranges shorter than this.',
+            'create.date_only_mode' => 'Check dates only',
+            'create.date_only_hint' => 'When enabled, choose candidate dates without times. Respondents only select dates when they are available.',
+            'create.slots' => 'Candidate times',
+            'create.slots_locked' => 'Enter an event name first.',
+            'create.manual_mode' => 'Manual entry',
+            'create.prev_month' => 'Previous month',
+            'create.next_month' => 'Next month',
+            'create.close' => 'Close',
+            'create.timeline_hint' => 'Drag horizontally in 10-minute steps on the 06-05 timeline. Click an existing block to delete it.',
+            'create.date_only_timeline_hint' => 'Click dates to add them as candidates. Click an existing date again to remove it.',
+            'create.manual_slots' => 'Enter candidate times directly',
+            'create.manual_dates' => 'Enter candidate dates directly',
+            'create.apply' => 'Apply',
+            'create.selected' => 'Selected',
+            'create.submit' => 'Save and create URLs',
+            'event.not_found' => 'Event not found.',
+            'event.saved' => 'Your response has been saved.',
+            'event.already_answered' => 'You have already responded.',
+            'event.already_answered_hint' => 'You can review the summary. If you need to edit your response, enter your name and edit password, then load your previous response.',
+            'event.ai_heading' => 'Fill with AI',
+            'event.open_ai' => 'Fill with AI',
+            'event.close_ai' => 'Close',
+            'event.copy_prompt' => 'Copy prompt for AI',
+            'event.ai_hint' => 'If your calendar is connected to an AI assistant such as ChatGPT or Gemini, copy the prompt and ask it to check your schedule. Paste the JSON returned by the AI below to fill your availability automatically.',
+            'event.ai_answer' => 'Paste AI response here',
+            'event.name' => 'Name',
+            'event.name_placeholder' => 'Jane Doe',
+            'event.edit_password' => 'Edit password',
+            'event.edit_password_placeholder' => 'Defaults to your name if unchanged',
+            'event.load_previous' => 'Load previous response',
+            'event.show_range_only' => 'Show candidate range only',
+            'event.show_full_day' => 'Back to 06-05 view',
+            'event.drag_hint' => 'Drag only within the white range on the 06-05 timeline. Click an existing range to delete it.',
+            'event.date_only_hint' => 'Select the dates when you are available.',
+            'event.available_date' => 'Available',
+            'event.unsupported_slot' => 'This candidate time cannot be answered with drag selection.',
+            'event.submit' => 'Save response',
+            'event.summary' => 'Summary',
+            'event.best_overlap' => 'Best overlap: ',
+            'event.overlap_aria' => 'Participant overlap',
+            'event.no_ok_ranges' => 'No available ranges yet.',
+            'event.no_available_dates' => 'No available-date responses yet.',
+            'admin.title' => 'Admin - %s - aite',
+            'admin.response_url' => 'Response URL',
+            'admin.admin_url' => 'Admin URL',
+            'admin.open_response' => 'Open response page',
+            'admin.csv_download' => 'Download CSV',
+            'admin.responses' => 'Responses',
+            'admin.no_responses' => 'No responses yet.',
+            'admin.system_title' => 'Admin mode - aite',
+            'admin.invalid_token' => 'The admin token is incorrect.',
+            'admin.token' => 'Admin token',
+            'admin.open_mode' => 'Open admin mode',
+            'admin.event_deleted' => 'The event has been deleted.',
+            'admin.database_reset' => 'The database has been reset.',
+            'admin.event_count' => 'Events: ',
+            'admin.auto_delete' => 'Auto delete: 1 month after the last update',
+            'admin.reset_confirm' => 'Delete all events and responses. Continue?',
+            'admin.reset_database' => 'Reset database',
+            'admin.event_list' => 'Created events',
+            'admin.no_events' => 'No events have been created.',
+            'admin.event' => 'Event',
+            'admin.created_at' => 'Created',
+            'admin.updated_at' => 'Last updated',
+            'admin.slot_count' => 'Slots',
+            'admin.response_count' => 'Responses',
+            'admin.actions' => 'Actions',
+            'admin.event_admin' => 'Event admin',
+            'admin.delete_confirm' => 'Delete this event. Continue?',
+            'admin.delete' => 'Delete',
+            'common.name' => 'Name',
+            'common.error' => 'Error: ',
+            'common.person_count' => '%d people',
+            'common.no_overlap' => 'No overlap',
+            'error.wrong_password' => 'The edit password is incorrect.',
+            'error.previous_not_found' => 'No previous response was found.',
+            'error.invalid_admin_url' => 'The admin URL is invalid.',
+            'error.create_required' => 'Enter an event name and at least one candidate time.',
+            'error.slot_30_minute_required' => 'Candidate times must use YYYY-MM-DD HH:MM-HH:MM format with start and end times on 10-minute increments.',
+            'error.min_duration_required' => 'Available ranges must be at least %d minutes.',
+            'error.min_duration_invalid' => 'Enter the minimum required time in 10-minute increments.',
+            'error.slot_min_duration_required' => 'Candidate times must be at least the minimum required time.',
+            'error.date_required' => 'Candidate dates must use YYYY-MM-DD format.',
+            'error.response_required' => 'Enter your name and edit password.',
+            'js.weekdays_short' => 'Sun,Mon,Tue,Wed,Thu,Fri,Sat',
+            'js.year_suffix' => '',
+            'js.month_suffix' => '',
+            'js.change_start' => 'Change start time',
+            'js.change_end' => 'Change end time',
+            'js.no_slots' => 'No candidate times yet.',
+            'js.create_slot_required' => 'Enter at least one candidate time.',
+            'js.slot_30_minute_required' => 'Use 10-minute increments for times.',
+            'js.busy_default_title' => 'Busy',
+            'js.ai_busy_title' => 'Events found by AI (not saved)',
+            'js.date_busy_title' => 'Events found by AI (for review)',
+            'js.no_ok_selected' => 'No available range selected.',
+            'js.min_duration_required' => 'Available ranges must be at least %d minutes.',
+            'js.slot_min_duration_required' => 'Candidate times must be at least the minimum required time.',
+            'js.date_required' => 'Use YYYY-MM-DD format for candidate dates.',
+            'js.load_failed' => 'Failed to load.',
+            'js.previous_loaded' => 'Loaded the previous response.',
+            'js.prompt_busy_title' => 'Event name',
+            'js.prompt_intro' => 'Please check my calendar for the following candidate times.',
+            'js.prompt_ok_ranges' => 'Put only the available time ranges in ok_ranges.',
+            'js.prompt_available_dates' => 'Use status: "o" only for candidate dates when I am available. Use status: "x" for unavailable dates.',
+            'js.prompt_date_busy_events' => 'Even if a date is not fully open, when the calendar event title suggests I may still be able to attend, keep status as "x" and include that event in busy_events with title, start, and end so I can review it.',
+            'js.prompt_min_duration' => 'Every ok_ranges entry must be at least %d minutes long.',
+            'js.prompt_status_o' => 'Use o if I am available.',
+            'js.prompt_partial' => 'If I am available for only part of a candidate time, return only that range.',
+            'js.prompt_status_maybe' => 'Use maybe if I am tentative.',
+            'js.prompt_busy_events' => 'For every unavailable event inside a candidate time, include title, start, and end in busy_events.',
+            'js.prompt_status_x' => 'Use x if I am unavailable.',
+            'js.prompt_hhmm' => 'start and end must use HH:MM format.',
+            'js.prompt_empty' => 'If there is no available time, use an empty ok_ranges array. If there are no busy events, use an empty busy_events array.',
+            'js.prompt_json_only' => 'Return JSON only.',
+            'js.prompt_slots' => 'Candidate times',
+            'js.copied' => 'Copied.',
+            'js.copy_url' => 'Copy URL',
+            'js.json_array_error' => 'The JSON is not an array.',
+            'js.no_applicable_items' => 'No applicable candidate times were found.',
+            'js.ai_applied_ranges_busy' => 'Applied %d available ranges and %d busy events.',
+            'js.ai_applied_count' => 'Applied %d items.',
+            'js.check_json' => 'Check the JSON: %s',
+            'js.delete_history' => 'Remove from history',
+            'js.history_response' => 'Response link',
+            'js.history_admin' => 'Creator link',
+        ],
+    ];
+}
+
+function current_lang(): string
+{
+    $requested = strtolower((string)($_GET['lang'] ?? $_POST['lang'] ?? ''));
+    if (in_array($requested, ['ja', 'en'], true)) {
+        return $requested;
+    }
+
+    $header = strtolower((string)($_SERVER['HTTP_ACCEPT_LANGUAGE'] ?? ''));
+    if ($header === '') {
+        return 'ja';
+    }
+
+    $bestLang = 'en';
+    $bestQ = -1.0;
+    foreach (explode(',', $header) as $part) {
+        $pieces = array_map('trim', explode(';', $part));
+        $lang = substr($pieces[0] ?? '', 0, 2);
+        if (!in_array($lang, ['ja', 'en'], true)) {
+            continue;
+        }
+        $q = 1.0;
+        foreach (array_slice($pieces, 1) as $piece) {
+            if (str_starts_with($piece, 'q=')) {
+                $q = (float)substr($piece, 2);
+            }
+        }
+        if ($q > $bestQ) {
+            $bestLang = $lang;
+            $bestQ = $q;
+        }
+    }
+    return $bestLang;
+}
+
+function t(string $key, mixed ...$args): string
+{
+    $all = translations();
+    $lang = current_lang();
+    $text = $all[$lang][$key] ?? $all['ja'][$key] ?? $key;
+    return $args ? sprintf($text, ...$args) : $text;
+}
+
+function js_i18n(): void
+{
+    $lang = current_lang();
+    $strings = translations()[$lang];
+    $flags = JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT;
+    echo '<script>window.AITE_LANG=' . json_encode($lang, $flags) . ';window.AITE_I18N=' . json_encode($strings, $flags) . ';</script>' . "\n";
 }
 
 function site_footer(): void
@@ -118,9 +516,10 @@ function current_url(): string
     return $scheme . '://' . $host . $uri;
 }
 
-function page_head(string $title, string $description = 'AIに聞いて、貼るだけ。予定調整をもっと軽く。'): void
+function page_head(string $title, ?string $description = null): void
 {
-    $image = asset_url('assets/aite-ogp.svg');
+    $description ??= t('app.description');
+    $image = asset_url('assets/aite-ogp.png');
     echo '<title>' . h($title) . '</title>' . "\n";
     echo '    <meta name="description" content="' . h($description) . '">' . "\n";
     echo '    <meta property="og:site_name" content="aite">' . "\n";
@@ -129,14 +528,14 @@ function page_head(string $title, string $description = 'AIに聞いて、貼る
     echo '    <meta property="og:type" content="website">' . "\n";
     echo '    <meta property="og:url" content="' . h(current_url()) . '">' . "\n";
     echo '    <meta property="og:image" content="' . h($image) . '">' . "\n";
-    echo '    <meta property="og:image:type" content="image/svg+xml">' . "\n";
-    echo '    <meta property="og:image:width" content="1200">' . "\n";
-    echo '    <meta property="og:image:height" content="630">' . "\n";
+    echo '    <meta property="og:image:type" content="image/png">' . "\n";
+    echo '    <meta property="og:image:width" content="1536">' . "\n";
+    echo '    <meta property="og:image:height" content="1024">' . "\n";
     echo '    <meta name="twitter:card" content="summary_large_image">' . "\n";
     echo '    <meta name="twitter:title" content="' . h($title) . '">' . "\n";
     echo '    <meta name="twitter:description" content="' . h($description) . '">' . "\n";
     echo '    <meta name="twitter:image" content="' . h($image) . '">' . "\n";
-    echo '    <link rel="icon" href="assets/aite-icon.svg" type="image/svg+xml">' . "\n";
+    echo '    <link rel="icon" href="assets/aite-icon.png" type="image/png">' . "\n";
     echo '    <link rel="stylesheet" href="style.css">';
 }
 
@@ -279,21 +678,39 @@ function parse_slot_text(string $text): ?array
     }
     $startMinutes = (int)$m[2] * 60 + (int)$m[3];
     $endMinutes = (int)$m[4] * 60 + (int)$m[5];
-    if ($startMinutes % 30 !== 0 || $endMinutes % 30 !== 0) {
+    if ($startMinutes % 10 !== 0 || $endMinutes % 10 !== 0) {
         return null;
     }
-    $start = intdiv($startMinutes, 30);
-    $end = intdiv($endMinutes, 30);
-    if ($start < 0 || $end > 48 || $end <= $start) {
+    $start = intdiv($startMinutes, 10);
+    $end = intdiv($endMinutes, 10);
+    if ($start < 0 || $end > 144 || $end <= $start) {
         return null;
     }
     return ['date' => $m[1], 'start' => $start, 'end' => $end];
 }
 
+function parse_date_slot_text(string $text): ?array
+{
+    $date = trim($text);
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+        return null;
+    }
+    $dt = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
+    if (!$dt || $dt->format('Y-m-d') !== $date) {
+        return null;
+    }
+    return ['date' => $date];
+}
+
 function time_from_index(int $index): string
 {
-    $minutes = $index * 30;
+    $minutes = $index * 10;
     return sprintf('%02d:%02d', intdiv($minutes, 60), $minutes % 60);
+}
+
+function duration_units_to_minutes(int $units): int
+{
+    return $units * 10;
 }
 
 function date_label(string $date): string
@@ -302,6 +719,9 @@ function date_label(string $date): string
     if (!$dt) {
         return $date;
     }
+    if (current_lang() === 'en') {
+        return $dt->format('Y/m/d') . ' (' . $dt->format('D') . ')';
+    }
     $weekdays = ['日', '月', '火', '水', '木', '金', '土'];
     return $dt->format('Y/m/d') . '（' . $weekdays[(int)$dt->format('w')] . '）';
 }
@@ -309,13 +729,17 @@ function date_label(string $date): string
 function slot_label(string $slotText): string
 {
     $parsed = parse_slot_text($slotText);
-    if (!$parsed) {
-        return $slotText;
+    if ($parsed) {
+        return date_label($parsed['date']) . ' ' . time_from_index($parsed['start']) . '-' . time_from_index($parsed['end']);
     }
-    return date_label($parsed['date']) . ' ' . time_from_index($parsed['start']) . '-' . time_from_index($parsed['end']);
+    $dateOnly = parse_date_slot_text($slotText);
+    if ($dateOnly) {
+        return date_label($dateOnly['date']);
+    }
+    return $slotText;
 }
 
-function create_event(string $title, string $description, array $slotTexts): array
+function create_event(string $title, string $description, array $slotTexts, int $minDurationUnits = 0, bool $dateOnly = false): array
 {
     $pdo = db();
     $id = new_id(5);
@@ -324,8 +748,8 @@ function create_event(string $title, string $description, array $slotTexts): arr
 
     $pdo->beginTransaction();
     try {
-        $stmt = $pdo->prepare('INSERT INTO events (id, title, description, admin_token, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)');
-        $stmt->execute([$id, $title, $description, $token, $now, $now]);
+        $stmt = $pdo->prepare('INSERT INTO events (id, title, description, admin_token, min_duration_units, date_only, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+        $stmt->execute([$id, $title, $description, $token, $dateOnly ? 0 : max(0, $minDurationUnits), $dateOnly ? 1 : 0, $now, $now]);
 
         $slotStmt = $pdo->prepare('INSERT INTO slots (id, event_id, slot_text, sort_order) VALUES (?, ?, ?, ?)');
         foreach ($slotTexts as $i => $slotText) {
@@ -344,6 +768,8 @@ function create_event(string $title, string $description, array $slotTexts): arr
 function save_response(string $eventId, string $name, string $password, array $answers = [], array $ranges = []): void
 {
     $pdo = db();
+    $event = get_event($eventId);
+    $minDurationUnits = max(0, (int)($event['min_duration_units'] ?? 0));
     $slots = get_slots($eventId);
     $slotMap = [];
     foreach ($slots as $slot) {
@@ -361,7 +787,7 @@ function save_response(string $eventId, string $name, string $password, array $a
 
         if ($existing) {
             if ($existing['password_hash'] !== '' && !password_verify($password, $existing['password_hash'])) {
-                throw new RuntimeException('編集用パスワードが違います。');
+                throw new RuntimeException(t('error.wrong_password'));
             }
             $responseId = (int)$existing['id'];
             $passwordHash = $existing['password_hash'] !== '' ? $existing['password_hash'] : password_hash($password, PASSWORD_DEFAULT);
@@ -405,6 +831,9 @@ function save_response(string $eventId, string $name, string $password, array $a
             $duration = $slotInfo['parsed']['end'] - $slotInfo['parsed']['start'];
             if ($start < 0 || $end > $duration || $end <= $start) {
                 continue;
+            }
+            if ($minDurationUnits > 0 && ($end - $start) < $minDurationUnits) {
+                throw new RuntimeException(t('error.min_duration_required', duration_units_to_minutes($minDurationUnits)));
             }
             $absoluteStart = $slotInfo['parsed']['start'] + $start;
             $absoluteEnd = $slotInfo['parsed']['start'] + $end;
@@ -558,10 +987,10 @@ function response_ranges_for_edit(string $eventId, string $name, string $passwor
     $stmt->execute([$eventId, $name]);
     $response = $stmt->fetch();
     if (!$response) {
-        throw new RuntimeException('前回回答が見つかりません。');
+        throw new RuntimeException(t('error.previous_not_found'));
     }
     if ($response['password_hash'] !== '' && !password_verify($password, $response['password_hash'])) {
-        throw new RuntimeException('編集用パスワードが違います。');
+        throw new RuntimeException(t('error.wrong_password'));
     }
 
     $stmt = db()->prepare('
@@ -582,6 +1011,30 @@ function response_ranges_for_edit(string $eventId, string $name, string $passwor
     return $ranges;
 }
 
+function response_answers_for_edit(string $eventId, string $name, string $password): array
+{
+    $stmt = db()->prepare('SELECT id, password_hash FROM responses WHERE event_id = ? AND name = ?');
+    $stmt->execute([$eventId, $name]);
+    $response = $stmt->fetch();
+    if (!$response) {
+        throw new RuntimeException(t('error.previous_not_found'));
+    }
+    if ($response['password_hash'] !== '' && !password_verify($password, $response['password_hash'])) {
+        throw new RuntimeException(t('error.wrong_password'));
+    }
+
+    $stmt = db()->prepare('SELECT slot_id, status FROM answers WHERE response_id = ?');
+    $stmt->execute([(int)$response['id']]);
+    $answers = [];
+    foreach ($stmt->fetchAll() as $answer) {
+        $answers[] = [
+            'slot_id' => $answer['slot_id'],
+            'status' => $answer['status'],
+        ];
+    }
+    return $answers;
+}
+
 function range_label(array $ranges): string
 {
     $labels = [];
@@ -597,8 +1050,8 @@ function overlap_segments(array $item): array
         return [];
     }
 
-    $frameStart = 12;
-    $frameUnits = 48;
+    $frameStart = 36;
+    $frameUnits = 144;
     $counts = array_fill(0, $frameUnits, 0);
     $outside = array_fill(0, $frameUnits, true);
     $slotStart = (int)$item['parsed']['start'];
@@ -647,7 +1100,7 @@ function best_overlap_label(array $item): string
 {
     $best = (int)($item['best'] ?? 0);
     if ($best <= 0) {
-        return '重なりなし';
+        return t('common.no_overlap');
     }
 
     $labels = [];
@@ -656,7 +1109,7 @@ function best_overlap_label(array $item): string
             $labels[] = $segment['start_time'] . '-' . $segment['end_time'];
         }
     }
-    return implode(' / ', $labels) . ' (' . $best . '人)';
+    return implode(' / ', $labels) . ' (' . t('common.person_count', $best) . ')';
 }
 
 function overlap_ticks(array $item): array
@@ -722,7 +1175,7 @@ function require_admin(string $eventId, string $token): array
     $event = get_event($eventId);
     if (!$event || !hash_equals($event['admin_token'], $token)) {
         http_response_code(403);
-        exit('管理URLが正しくありません。');
+        exit(t('error.invalid_admin_url'));
     }
     return $event;
 }
@@ -761,7 +1214,7 @@ function require_system_admin(string $token): void
 {
     if (!is_system_admin($token)) {
         http_response_code(403);
-        exit('管理者トークンが正しくありません。');
+        exit(t('admin.invalid_token'));
     }
 }
 
@@ -770,13 +1223,38 @@ function handle_create(): void
     $title = trim($_POST['title'] ?? '');
     $description = trim($_POST['description'] ?? '');
     $slotTexts = parse_slot_lines($_POST['slots'] ?? '');
-
-    if ($title === '' || count($slotTexts) === 0) {
-        redirect_to('create.php?error=' . rawurlencode('イベント名と候補日時を入力してください。'));
+    $dateOnly = !empty($_POST['date_only']);
+    $minDurationUnits = 0;
+    if (!$dateOnly && !empty($_POST['min_duration_enabled'])) {
+        $minutes = (int)($_POST['min_duration_minutes'] ?? 0);
+        if ($minutes < 10 || $minutes > 1440 || $minutes % 10 !== 0) {
+            redirect_to('create.php?error=' . rawurlencode(t('error.min_duration_invalid')) . '&lang=' . rawurlencode(current_lang()));
+        }
+        $minDurationUnits = intdiv($minutes, 10);
     }
 
-    $event = create_event($title, $description, $slotTexts);
-    redirect_to(admin_url($event['id'], $event['admin_token']));
+    if ($title === '' || count($slotTexts) === 0) {
+        redirect_to('create.php?error=' . rawurlencode(t('error.create_required')));
+    }
+
+    foreach ($slotTexts as $slotText) {
+        if ($dateOnly) {
+            if (!parse_date_slot_text($slotText)) {
+                redirect_to('create.php?error=' . rawurlencode(t('error.date_required')) . '&lang=' . rawurlencode(current_lang()));
+            }
+            continue;
+        }
+        $parsed = parse_slot_text($slotText);
+        if (!$parsed) {
+            redirect_to('create.php?error=' . rawurlencode(t('error.slot_30_minute_required')) . '&lang=' . rawurlencode(current_lang()));
+        }
+        if ($minDurationUnits > 0 && ((int)$parsed['end'] - (int)$parsed['start']) < $minDurationUnits) {
+            redirect_to('create.php?error=' . rawurlencode(t('error.slot_min_duration_required')) . '&lang=' . rawurlencode(current_lang()));
+        }
+    }
+
+    $event = create_event($title, $description, $slotTexts, $minDurationUnits, $dateOnly);
+    redirect_to(admin_url($event['id'], $event['admin_token']) . '&lang=' . rawurlencode(current_lang()));
 }
 
 function handle_response(): void
@@ -787,7 +1265,7 @@ function handle_response(): void
     $password = (string)($_POST['edit_password'] ?? '');
 
     if (!$event || $name === '' || $password === '') {
-        redirect_to('event.php?id=' . rawurlencode($eventId) . '&error=' . rawurlencode('名前と編集用パスワードを入力してください。'));
+        redirect_to('event.php?id=' . rawurlencode($eventId) . '&error=' . rawurlencode(t('error.response_required')) . '&lang=' . rawurlencode(current_lang()));
     }
 
     $ranges = [];
@@ -802,9 +1280,9 @@ function handle_response(): void
     try {
         save_response($eventId, $name, $password, $_POST['answers'] ?? [], $ranges);
     } catch (RuntimeException $e) {
-        redirect_to('event.php?id=' . rawurlencode($eventId) . '&error=' . rawurlencode($e->getMessage()));
+        redirect_to('event.php?id=' . rawurlencode($eventId) . '&error=' . rawurlencode($e->getMessage()) . '&lang=' . rawurlencode(current_lang()));
     }
-    redirect_to('event.php?id=' . rawurlencode($eventId) . '&saved=1');
+    redirect_to('event.php?id=' . rawurlencode($eventId) . '&saved=1&lang=' . rawurlencode(current_lang()));
 }
 
 function handle_load_response(): void
@@ -815,12 +1293,12 @@ function handle_load_response(): void
     $password = (string)($_POST['edit_password'] ?? '');
     if (!get_event($eventId) || $name === '' || $password === '') {
         http_response_code(400);
-        echo json_encode(['ok' => false, 'error' => '名前と編集用パスワードを入力してください。'], JSON_UNESCAPED_UNICODE);
+        echo json_encode(['ok' => false, 'error' => t('error.response_required')], JSON_UNESCAPED_UNICODE);
         exit;
     }
 
     try {
-        echo json_encode(['ok' => true, 'ranges' => response_ranges_for_edit($eventId, $name, $password)], JSON_UNESCAPED_UNICODE);
+        echo json_encode(['ok' => true, 'ranges' => response_ranges_for_edit($eventId, $name, $password), 'answers' => response_answers_for_edit($eventId, $name, $password)], JSON_UNESCAPED_UNICODE);
     } catch (RuntimeException $e) {
         http_response_code(403);
         echo json_encode(['ok' => false, 'error' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
@@ -840,7 +1318,7 @@ function handle_csv(): void
     header('Content-Disposition: attachment; filename="aite_' . $eventId . '.csv"');
     $out = fopen('php://output', 'w');
     fwrite($out, "\xEF\xBB\xBF");
-    fputcsv($out, array_merge(['名前'], array_map(fn($slot) => slot_label($slot['slot_text']), $slots)));
+    fputcsv($out, array_merge([t('common.name')], array_map(fn($slot) => slot_label($slot['slot_text']), $slots)));
     foreach ($responses as $response) {
         $row = [$response['name']];
         foreach ($slots as $slot) {
@@ -864,6 +1342,6 @@ if (basename($_SERVER['SCRIPT_FILENAME'] ?? '') === 'api.php') {
         };
     } catch (Throwable $e) {
         http_response_code(500);
-        echo 'エラー: ' . h($e->getMessage());
+        echo t('common.error') . h($e->getMessage());
     }
 }
