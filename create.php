@@ -16,7 +16,7 @@
         <input type="hidden" name="slots" id="slotsInput">
         <input type="hidden" name="lang" value="<?= h(current_lang()) ?>">
 
-        <section class="card stack">
+        <section class="card stack create-basics">
             <h1><?= h(t('create.heading')) ?></h1>
             <?php if (!empty($_GET['error'])): ?>
                 <p class="notice error"><?= h($_GET['error']) ?></p>

@@ -55,7 +55,8 @@ button {
 }
 
 input,
-textarea {
+textarea,
+select {
     width: 100%;
     border: 1px solid var(--line);
     border-radius: 8px;
@@ -443,6 +444,98 @@ label span {
 .check-row span {
     margin: 0;
     color: inherit;
+}
+
+.create-basics {
+    gap: 20px;
+    padding: 28px;
+    border-color: #cfe3df;
+    box-shadow: 0 12px 30px rgba(8, 90, 104, .08);
+}
+
+.create-basics h1 {
+    font-size: 2rem;
+    line-height: 1.2;
+}
+
+.create-basics > label:not(.check-row) {
+    display: grid;
+    gap: 8px;
+}
+
+.create-basics > label:not(.check-row) > span {
+    margin: 0;
+    font-size: .95rem;
+}
+
+.create-basics input[name="title"] {
+    min-height: 58px;
+    padding: 14px 16px;
+    border-color: #c8dfda;
+    font-size: 1.1rem;
+    transition: border-color .18s ease, box-shadow .18s ease;
+}
+
+.create-basics input[name="title"]:focus {
+    outline: 0;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 4px rgba(7, 136, 169, .12);
+}
+
+.create-basics .check-row {
+    width: 100%;
+    min-height: 56px;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fbfefd;
+    transition: border-color .18s ease, background .18s ease, box-shadow .18s ease;
+}
+
+.create-basics .check-row:hover {
+    border-color: #a9d7cf;
+    background: #f4fbf9;
+}
+
+.create-basics .check-row:has(input:checked) {
+    border-color: #78cfc0;
+    background: var(--primary-soft);
+    box-shadow: inset 0 0 0 1px rgba(7, 136, 169, .06);
+}
+
+.create-basics .check-row input {
+    width: 20px;
+    height: 20px;
+    margin: 0;
+    accent-color: var(--primary);
+}
+
+.create-basics .check-row span {
+    font-size: .98rem;
+}
+
+.create-basics #descriptionPanel,
+.create-basics #minDurationPanel,
+.create-basics #dateOnlyHint {
+    margin: -10px 0 0 14px;
+    padding: 4px 0 4px 16px;
+    border-left: 2px solid #b6e2da;
+}
+
+.create-basics #minDurationPanel label {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(120px, 180px);
+    align-items: center;
+    gap: 12px;
+}
+
+.create-basics #minDurationPanel label span {
+    margin: 0;
+}
+
+.create-basics #minDurationPanel .hint {
+    margin-top: 6px;
+    font-size: .9rem;
 }
 
 .locked-card {
