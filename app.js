@@ -1534,6 +1534,7 @@
                     rangeMode ? tr('js.prompt_hhmm') : '',
                     rangeMode ? tr('js.prompt_empty') : '',
                     tr('js.prompt_json_only'),
+                    tr('js.prompt_ascii_quotes'),
                     '[',
                     example || (rangeMode ? '  {"slot_id":"slot_xxx","ok_ranges":[{"start":"13:00","end":"14:00"}],"busy_events":[{"title":"' + tr('js.prompt_busy_title') + '","start":"14:00","end":"15:00"}]}' : '  {"slot_id":"slot_xxx","status":"o"}'),
                     ']',
