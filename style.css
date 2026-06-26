@@ -124,6 +124,11 @@ label span {
     text-decoration: none;
 }
 
+.site-footer a:hover,
+.site-footer a:focus {
+    text-decoration: underline;
+}
+
 .brand {
     font-weight: 800;
     color: var(--primary);
@@ -1211,6 +1216,34 @@ label span {
     width: min(720px, 100%);
     max-height: min(760px, calc(100vh - 36px));
     overflow: auto;
+}
+
+.disclaimer-modal {
+    width: min(560px, 100%);
+    display: grid;
+    gap: 16px;
+    padding: 24px;
+    border: 1px solid #cfe3df;
+    border-radius: 8px;
+    background: var(--card);
+    box-shadow: 0 20px 54px rgba(8, 54, 64, .22);
+}
+
+.disclaimer-modal p {
+    color: var(--muted);
+}
+
+.disclaimer-close {
+    width: 38px;
+    min-height: 38px;
+    color: var(--muted);
+    background: transparent;
+}
+
+.disclaimer-close:hover,
+.disclaimer-close:focus {
+    color: var(--text);
+    background: #eef7f5;
 }
 
 @media (min-width: 720px) {

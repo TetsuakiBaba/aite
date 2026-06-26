@@ -154,6 +154,11 @@ function translations(): array
     return [
         'ja' => [
             'app.description' => 'AIに聞いて、貼るだけ。予定調整をもっと軽く。',
+            'footer.disclaimer' => '免責事項',
+            'disclaimer.title' => '免責事項',
+            'disclaimer.body_1' => 'aiteは日程調整を支援するためのツールです。回答内容、AIから貼り付けた情報、共有リンクの取り扱いは、利用者の責任で確認してください。',
+            'disclaimer.body_2' => '予定の正確性、参加可否、第三者のサービスやAIの出力、データの保存・消失に起因する損害について、aiteは保証しません。重要な予定は参加者間で最終確認してください。',
+            'disclaimer.close' => '閉じる',
             'admin.mode' => '管理者モード',
             'home.hero' => 'AIに聞いて、貼るだけ。',
             'home.lead' => '予定調整をもっと軽く。',
@@ -300,6 +305,11 @@ function translations(): array
         ],
         'en' => [
             'app.description' => 'Ask AI, paste the answer, and schedule with less friction.',
+            'footer.disclaimer' => 'Disclaimer',
+            'disclaimer.title' => 'Disclaimer',
+            'disclaimer.body_1' => 'aite is a tool that helps with scheduling. You are responsible for checking response data, information pasted from AI, and the handling of shared links.',
+            'disclaimer.body_2' => 'aite does not guarantee schedule accuracy, availability, third-party services or AI output, or protection from data loss. Confirm important plans directly with all participants.',
+            'disclaimer.close' => 'Close',
             'admin.mode' => 'Admin mode',
             'home.hero' => 'Ask AI, then paste.',
             'home.lead' => 'Make scheduling lighter.',
@@ -499,7 +509,50 @@ function js_i18n(): void
 
 function site_footer(): void
 {
-    echo '<footer class="site-footer"><span>aite</span><a href="https://github.com/TetsuakiBaba/aite" target="_blank" rel="noopener">GitHub</a></footer>';
+    $disclaimer = h(t('footer.disclaimer'));
+    $title = h(t('disclaimer.title'));
+    $body1 = h(t('disclaimer.body_1'));
+    $body2 = h(t('disclaimer.body_2'));
+    $close = h(t('disclaimer.close'));
+
+    echo <<<HTML
+<footer class="site-footer">
+    <span>aite</span>
+    <a href="https://github.com/TetsuakiBaba/aite" target="_blank" rel="noopener">GitHub</a>
+    <a href="#disclaimer" data-disclaimer-open>{$disclaimer}</a>
+</footer>
+<div class="modal-backdrop disclaimer-backdrop" id="disclaimerModal" hidden>
+    <section class="disclaimer-modal" role="dialog" aria-modal="true" aria-labelledby="disclaimerTitle">
+        <div class="section-head">
+            <h2 id="disclaimerTitle">{$title}</h2>
+            <button type="button" class="icon-button disclaimer-close" data-disclaimer-close aria-label="{$close}" title="{$close}"><span class="icon icon-xmark" aria-hidden="true"></span></button>
+        </div>
+        <p>{$body1}</p>
+        <p>{$body2}</p>
+    </section>
+</div>
+<script>
+(() => {
+    const modal = document.getElementById('disclaimerModal');
+    const open = document.querySelector('[data-disclaimer-open]');
+    const close = modal?.querySelector('[data-disclaimer-close]');
+    if (!modal || !open || !close) return;
+    const hide = () => { modal.hidden = true; };
+    open.addEventListener('click', (event) => {
+        event.preventDefault();
+        modal.hidden = false;
+        close.focus();
+    });
+    close.addEventListener('click', hide);
+    modal.addEventListener('click', (event) => {
+        if (event.target === modal) hide();
+    });
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && !modal.hidden) hide();
+    });
+})();
+</script>
+HTML;
 }
 
 function asset_url(string $path): string
