@@ -9,6 +9,7 @@ if ($id !== '') {
     $slots = get_slots($id);
     $responses = responses_with_answers($id);
     $summary = aggregate($id);
+    $dateOnly = !empty($event['date_only']);
     $publicUrl = event_url($id);
     $adminUrl = admin_url($id, $token);
     $csvUrl = 'api.php?action=csv&id=' . rawurlencode($id) . '&token=' . rawurlencode($token);
@@ -57,8 +58,12 @@ if ($id !== '') {
                 <?php foreach ($summary as $item): ?>
                     <article class="result-row">
                         <strong><?= h(slot_label($item['slot']['slot_text'])) ?></strong>
-                        <span><?= h(t('event.best_overlap')) ?><strong><?= h(best_overlap_label($item)) ?></strong></span>
-                        <?php if ($item['parsed']): ?>
+                        <?php if ($dateOnly): ?>
+                            <span><?= h(t('event.available_date')) ?>: <strong><?= h(t('common.person_count', (int)$item['o'])) ?></strong></span>
+                        <?php else: ?>
+                            <span><?= h(t('event.best_overlap')) ?><strong><?= h(best_overlap_label($item)) ?></strong></span>
+                        <?php endif; ?>
+                        <?php if (!$dateOnly && $item['parsed']): ?>
                             <div class="overlap-chart" aria-label="<?= h(t('event.overlap_aria')) ?>">
                                 <div class="overlap-ticks">
                                     <?php foreach (overlap_ticks($item) as $tick): ?>
@@ -76,7 +81,10 @@ if ($id !== '') {
                                 </div>
                             </div>
                         <?php endif; ?>
-                        <?php if ($item['ranges']): ?>
+                        <?php if ($dateOnly): ?>
+                            <?php $availableNames = array_values(array_map(fn($answer) => $answer['name'], array_filter($item['answers'], fn($answer) => ($answer['status'] ?? '') === 'o'))); ?>
+                            <small><?= h($availableNames ? implode(' / ', $availableNames) : t('event.no_available_dates')) ?></small>
+                        <?php elseif ($item['ranges']): ?>
                             <small>
                                 <?php foreach ($item['ranges'] as $range): ?>
                                     <?= h($range['name']) ?>: <?= h($range['start_time']) ?>-<?= h($range['end_time']) ?>
@@ -110,7 +118,7 @@ if ($id !== '') {
                             <tr>
                                 <th><?= h($response['name']) ?></th>
                                 <?php foreach ($slots as $slot): ?>
-                                    <td><?= h(range_label($response['ranges'][$slot['id']] ?? [])) ?></td>
+                                    <td><?= $dateOnly ? h(status_label($response['answers'][$slot['id']] ?? null)) : h(range_label($response['ranges'][$slot['id']] ?? [])) ?></td>
                                 <?php endforeach; ?>
                             </tr>
                         <?php endforeach; ?>

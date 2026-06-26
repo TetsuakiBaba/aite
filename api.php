@@ -1366,6 +1366,7 @@ function handle_csv(): void
     $event = require_admin($eventId, $token);
     $slots = get_slots($eventId);
     $responses = responses_with_answers($eventId);
+    $dateOnly = !empty($event['date_only']);
 
     header('Content-Type: text/csv; charset=UTF-8');
     header('Content-Disposition: attachment; filename="aite_' . $eventId . '.csv"');
@@ -1375,7 +1376,9 @@ function handle_csv(): void
     foreach ($responses as $response) {
         $row = [$response['name']];
         foreach ($slots as $slot) {
-            $row[] = range_label($response['ranges'][$slot['id']] ?? []);
+            $row[] = $dateOnly
+                ? status_label($response['answers'][$slot['id']] ?? null)
+                : range_label($response['ranges'][$slot['id']] ?? []);
         }
         fputcsv($out, $row);
     }

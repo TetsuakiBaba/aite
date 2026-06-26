@@ -136,6 +136,7 @@
         var today = new Date();
         var viewDate = new Date(today.getFullYear(), today.getMonth(), 1);
         var activeDate = null;
+        var activeDatePulse = null;
         var dragStart = null;
         var dragEnd = null;
         var dragging = false;
@@ -168,8 +169,11 @@
         }
 
         function setMinDurationState() {
-            var enabled = !!(minDurationToggle && minDurationToggle.checked && !dateOnlyMode());
-            if (minDurationToggle) minDurationToggle.disabled = dateOnlyMode();
+            var dateOnly = dateOnlyMode();
+            if (dateOnly && minDurationToggle) minDurationToggle.checked = false;
+            var enabled = !!(minDurationToggle && minDurationToggle.checked && !dateOnly);
+            if (minDurationToggle) minDurationToggle.disabled = dateOnly;
+            if (dateOnlyToggle) dateOnlyToggle.disabled = !!(minDurationToggle && minDurationToggle.checked);
             if (minDurationPanel) minDurationPanel.hidden = !enabled;
             if (minDurationInput) minDurationInput.disabled = !enabled;
         }
@@ -395,6 +399,7 @@
                 if (dateText === ymd(today)) button.classList.add('today');
                 if (hasDate(dateText)) button.classList.add('selected');
                 if (dateText === activeDate) button.classList.add('active');
+                if (dateText === activeDatePulse) button.classList.add('just-selected');
                 button.textContent = d;
                 button.addEventListener('click', function (value) {
                     return function () {
@@ -492,8 +497,20 @@
         }
 
         function openTimeline(dateText) {
+            var shouldAnimate = activeDate !== dateText || timelineWrap.hidden;
             activeDate = dateText;
             timelineWrap.hidden = false;
+            if (shouldAnimate) {
+                activeDatePulse = dateText;
+                renderCalendar();
+                timelineWrap.classList.remove('is-opening');
+                window.requestAnimationFrame(function () {
+                    timelineWrap.classList.add('is-opening');
+                });
+                window.setTimeout(function () {
+                    if (activeDatePulse === dateText) activeDatePulse = null;
+                }, 500);
+            }
             renderTimeline();
             timelineWrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
@@ -602,6 +619,9 @@
         document.getElementById('closeTimeline').addEventListener('click', function () {
             activeDate = null;
             timelineWrap.hidden = true;
+        });
+        timelineWrap.addEventListener('animationend', function () {
+            timelineWrap.classList.remove('is-opening');
         });
         document.getElementById('manualToggle').addEventListener('click', function () {
             manualPanel.hidden = !manualPanel.hidden;

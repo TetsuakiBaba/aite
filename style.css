@@ -502,6 +502,22 @@ label span {
     background: #f4fbf9;
 }
 
+.create-basics .check-row:has(input:disabled) {
+    cursor: not-allowed;
+    border-color: #e1e9e7;
+    background: #f4f7f6;
+    color: #91a19f;
+}
+
+.create-basics .check-row:has(input:disabled):hover {
+    border-color: #e1e9e7;
+    background: #f4f7f6;
+}
+
+.create-basics .check-row:has(input:disabled) span {
+    color: inherit;
+}
+
 .create-basics .check-row:has(input:checked) {
     border-color: #78cfc0;
     background: var(--primary-soft);
@@ -612,9 +628,43 @@ label span {
     outline-offset: 2px;
 }
 
+.cal-day.just-selected {
+    animation: calendar-day-confirm .42s cubic-bezier(.2, .8, .3, 1);
+}
+
 .timeline-wrap {
     border-top: 1px solid var(--line);
     padding-top: 16px;
+}
+
+.timeline-wrap.is-opening {
+    animation: timeline-reveal .34s cubic-bezier(.2, .8, .3, 1);
+}
+
+@keyframes calendar-day-confirm {
+    0% {
+        box-shadow: 0 0 0 0 rgba(7, 136, 169, .32);
+        transform: scale(1);
+    }
+    45% {
+        box-shadow: 0 0 0 7px rgba(7, 136, 169, 0);
+        transform: scale(1.05);
+    }
+    100% {
+        box-shadow: 0 0 0 10px rgba(7, 136, 169, 0);
+        transform: scale(1);
+    }
+}
+
+@keyframes timeline-reveal {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 .timeline {
@@ -741,6 +791,13 @@ label span {
 .manual[hidden],
 .timeline-wrap[hidden] {
     display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .cal-day.just-selected,
+    .timeline-wrap.is-opening {
+        animation: none;
+    }
 }
 
 .slot-list {
