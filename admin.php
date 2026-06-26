@@ -30,7 +30,7 @@ if ($id !== '') {
         <section class="card stack">
             <h1><?= h($event['title']) ?></h1>
             <?php if ($event['description'] !== ''): ?>
-                <p class="description"><?= nl2br(h($event['description'])) ?></p>
+                <p class="description"><?= nl2br(linkify($event['description'])) ?></p>
             <?php endif; ?>
             <label>
                 <span><?= h(t('admin.response_url')) ?></span>

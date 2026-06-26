@@ -149,6 +149,33 @@ function h(?string $value): string
     return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
 }
 
+function linkify(string $value): string
+{
+    $parts = preg_split('~(https?://[^\s<>]+)~u', $value, -1, PREG_SPLIT_DELIM_CAPTURE);
+    if ($parts === false) {
+        return h($value);
+    }
+
+    $html = '';
+    foreach ($parts as $index => $part) {
+        if ($index % 2 === 0) {
+            $html .= h($part);
+            continue;
+        }
+
+        $url = rtrim($part, '.,;:!?)]}');
+        $suffix = substr($part, strlen($url));
+        if (!filter_var($url, FILTER_VALIDATE_URL)) {
+            $html .= h($part);
+            continue;
+        }
+
+        $escapedUrl = h($url);
+        $html .= '<a href="' . $escapedUrl . '" target="_blank" rel="noopener noreferrer">' . $escapedUrl . '</a>' . h($suffix);
+    }
+    return $html;
+}
+
 function translations(): array
 {
     return [

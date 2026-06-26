@@ -26,7 +26,7 @@ $promptSlots = array_map(fn($s) => ['id' => $s['id'], 'text' => $s['slot_text'],
     <section class="card stack">
         <h1><?= h($event['title']) ?></h1>
         <?php if ($event['description'] !== ''): ?>
-            <p class="description"><?= nl2br(h($event['description'])) ?></p>
+            <p class="description"><?= nl2br(linkify($event['description'])) ?></p>
         <?php endif; ?>
         <?php if (!empty($_GET['saved'])): ?>
             <p class="notice success"><?= h(t('event.saved')) ?></p>
