@@ -918,6 +918,22 @@ label span {
     gap: 10px;
 }
 
+.availability-card-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 10px;
+}
+
+.availability-card-head h3 {
+    min-width: 0;
+}
+
+.select-all-range {
+    justify-self: end;
+    white-space: nowrap;
+}
+
 .availability-track {
     position: relative;
     width: 100%;
@@ -971,6 +987,11 @@ label span {
 .avail-cell.disabled {
     background: #dbe9e6;
     cursor: not-allowed;
+}
+
+.avail-cell:not(.disabled):hover,
+.avail-cell:not(.disabled):focus {
+    z-index: 6;
 }
 
 .avail-block {
@@ -1056,6 +1077,8 @@ label span {
     white-space: nowrap;
 }
 
+.avail-cell::after,
+.avail-cell::before,
 .avail-block::after,
 .avail-block::before,
 .avail-busy-block::after,
@@ -1067,6 +1090,7 @@ label span {
     z-index: 20;
 }
 
+.avail-cell::after,
 .avail-block::after,
 .avail-busy-block::after {
     content: attr(data-tooltip);
@@ -1085,6 +1109,12 @@ label span {
     white-space: normal;
 }
 
+.avail-cell::after {
+    bottom: auto;
+    top: 8px;
+}
+
+.avail-cell::before,
 .avail-block::before,
 .avail-busy-block::before {
     content: "";
@@ -1095,6 +1125,17 @@ label span {
     border-top-color: #1f2933;
 }
 
+.avail-cell::before {
+    bottom: auto;
+    top: 3px;
+    border-top-color: transparent;
+    border-bottom-color: #1f2933;
+}
+
+.avail-cell:not(.disabled):hover::after,
+.avail-cell:not(.disabled):hover::before,
+.avail-cell:not(.disabled):focus::after,
+.avail-cell:not(.disabled):focus::before,
 .avail-block:hover::after,
 .avail-block:hover::before,
 .avail-block:focus::after,
@@ -1104,12 +1145,6 @@ label span {
 .avail-busy-block:focus::after,
 .avail-busy-block:focus::before {
     opacity: 1;
-}
-
-.range-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
 }
 
 .view-toggle-row {

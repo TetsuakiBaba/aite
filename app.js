@@ -754,6 +754,16 @@
                 selections[slotId] = [];
                 busyEvents[slotId] = [];
             }
+            var selectAllButton = card.querySelector('.select-all-range');
+            if (selectAllButton) {
+                selectAllButton.addEventListener('click', function () {
+                    var info = cardInfo(card);
+                    if (!info) return;
+                    drag = null;
+                    resize = null;
+                    addRange(info.slotId, 0, info.units);
+                });
+            }
         });
 
         function cardInfo(card) {
@@ -1051,8 +1061,7 @@
         function renderCard(card) {
             var info = cardInfo(card);
             var track = card.querySelector('.availability-track');
-            var list = card.querySelector('.range-list');
-            if (!info || !track || !list) return;
+            if (!info || !track) return;
 
             track.innerHTML = '';
             var width = track.clientWidth || window.innerWidth;
@@ -1081,6 +1090,8 @@
                 if (!isAllowedVisual(info, i)) {
                     cell.classList.add('disabled');
                     cell.disabled = true;
+                } else {
+                    cell.dataset.tooltip = tr('js.select_available_range');
                 }
                 cell.setAttribute('aria-label', timeText(visualToAbsForInfo(info, i)));
                 selectRow.appendChild(cell);
@@ -1108,27 +1119,6 @@
                 }
             }
 
-            list.innerHTML = '';
-            if (!(selections[info.slotId] || []).length) {
-                var empty = document.createElement('p');
-                empty.className = 'muted';
-                empty.textContent = tr('js.no_ok_selected');
-                list.appendChild(empty);
-            } else {
-                selections[info.slotId].forEach(function (range) {
-                    var chip = document.createElement('button');
-                    chip.type = 'button';
-                    chip.className = 'slot-chip';
-                    var label = document.createElement('span');
-                    label.textContent = timeText(info.start + range.start) + '-' + timeText(info.start + range.end);
-                    chip.appendChild(label);
-                    chip.appendChild(icon('xmark'));
-                    chip.addEventListener('click', function () {
-                        removeRange(info.slotId, range.start, range.end);
-                    });
-                    list.appendChild(chip);
-                });
-            }
             renderBusyList(card, info);
         }
 

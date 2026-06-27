@@ -112,6 +112,7 @@ $promptSlots = array_map(fn($s) => ['id' => $s['id'], 'text' => $s['slot_text'],
 
         <div class="answer-list" id="answerList">
             <?php if (!$dateOnly): ?>
+                <p class="hint"><?= h(t('event.drag_hint')) ?></p>
                 <div class="view-toggle-row">
                     <button type="button" class="button secondary small active" id="toggleRangeView" data-range-label="<?= h(t('event.show_range_only')) ?>" data-full-label="<?= h(t('event.show_full_day')) ?>"><?= h(t('event.show_full_day')) ?></button>
                 </div>
@@ -137,11 +138,14 @@ $promptSlots = array_map(fn($s) => ['id' => $s['id'], 'text' => $s['slot_text'],
                         data-slot-text="<?= h($slot['slot_text']) ?>"
                         data-start="<?= h((string)($parsed['start'] ?? '')) ?>"
                         data-end="<?= h((string)($parsed['end'] ?? '')) ?>">
-                        <h3><?= h(slot_label($slot['slot_text'])) ?></h3>
+                        <div class="availability-card-head">
+                            <h3><?= h(slot_label($slot['slot_text'])) ?></h3>
+                            <?php if ($parsed): ?>
+                                <button type="button" class="button secondary small select-all-range" aria-label="<?= h(t('event.select_all_available_aria')) ?>"><?= h(t('event.select_all_available')) ?></button>
+                            <?php endif; ?>
+                        </div>
                         <?php if ($parsed): ?>
-                            <p class="hint"><?= h(t('event.drag_hint')) ?></p>
                             <div class="availability-track" aria-label="<?= h(slot_label($slot['slot_text'])) ?>"></div>
-                            <div class="range-list"></div>
                             <div class="ai-busy-list" hidden></div>
                         <?php else: ?>
                             <p class="notice error"><?= h(t('event.unsupported_slot')) ?></p>
