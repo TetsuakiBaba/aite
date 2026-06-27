@@ -235,7 +235,7 @@ function translations(): array
             'event.load_previous' => '前回回答を読み込む',
             'event.show_range_only' => '候補範囲だけ表示',
             'event.show_full_day' => '06-05表示に戻す',
-            'event.drag_hint' => '白い範囲だけドラッグできます。作成済みの範囲はクリックで削除できます。',
+            'event.drag_hint' => 'スケジュール調整可能な範囲をドラッグして選択してください。作成済みの範囲はクリックで削除できます。',
             'event.date_only_hint' => '空いている日程を選択してください。',
             'event.available_date' => '空いている',
             'event.unsupported_slot' => 'この候補はドラッグ回答に対応した形式ではありません。',

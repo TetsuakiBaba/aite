@@ -938,13 +938,12 @@ label span {
 
 .avail-label {
     min-width: 0;
-    border-right: 1px solid var(--line);
     color: #667a80;
     font-size: .78rem;
     font-weight: 800;
     padding: 8px 2px 0;
     text-align: center;
-    overflow: hidden;
+    overflow: visible;
     white-space: nowrap;
 }
 

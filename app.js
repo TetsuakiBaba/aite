@@ -813,7 +813,8 @@
         }
 
         function rangeTimeLabel(info, index, step) {
-            if (index !== 0 && index !== info.units - 1 && index % step !== 0) return '';
+            if (index !== 0 && index === info.units - 1) return '';
+            if (index !== 0 && index % step !== 0) return '';
             return timeText(info.start + index);
         }
 
