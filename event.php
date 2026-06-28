@@ -146,7 +146,12 @@ $promptSlots = array_map(fn($s) => ['id' => $s['id'], 'text' => $s['slot_text'],
                         <div class="availability-card-head">
                             <h3><?= h(slot_label($slot['slot_text'])) ?></h3>
                             <?php if ($parsed): ?>
-                                <button type="button" class="button secondary small select-all-range" aria-label="<?= h(t('event.select_all_available_aria')) ?>"><?= h(t('event.select_all_available')) ?></button>
+                                <div class="availability-card-actions">
+                                    <button type="button" class="button secondary small select-all-range" aria-label="<?= h(t('event.select_all_available_aria')) ?>"><?= h(t('event.select_all_available')) ?></button>
+                                    <button type="button" class="button secondary small icon-button clear-range" aria-label="<?= h(t('event.clear_available_aria')) ?>" title="<?= h(t('event.clear_available')) ?>">
+                                        <span class="icon icon-trash" aria-hidden="true"></span>
+                                    </button>
+                                </div>
                             <?php endif; ?>
                         </div>
                         <?php if ($parsed): ?>

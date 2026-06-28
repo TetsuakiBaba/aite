@@ -945,6 +945,18 @@ label span {
     min-width: 0;
 }
 
+.availability-card-actions {
+    justify-self: end;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.availability-card-actions .icon-button {
+    width: 36px;
+    min-height: 36px;
+}
+
 .select-all-range {
     justify-self: end;
     white-space: nowrap;
@@ -1006,7 +1018,7 @@ label span {
 }
 
 .avail-cell:not(.disabled):hover,
-.avail-cell:not(.disabled):focus {
+.avail-cell:not(.disabled):focus-visible {
     z-index: 6;
 }
 
@@ -1150,16 +1162,16 @@ label span {
 
 .avail-cell:not(.disabled):hover::after,
 .avail-cell:not(.disabled):hover::before,
-.avail-cell:not(.disabled):focus::after,
-.avail-cell:not(.disabled):focus::before,
+.avail-cell:not(.disabled):focus-visible::after,
+.avail-cell:not(.disabled):focus-visible::before,
 .avail-block:hover::after,
 .avail-block:hover::before,
-.avail-block:focus::after,
-.avail-block:focus::before,
+.avail-block:focus-visible::after,
+.avail-block:focus-visible::before,
 .avail-busy-block:hover::after,
 .avail-busy-block:hover::before,
-.avail-busy-block:focus::after,
-.avail-busy-block:focus::before {
+.avail-busy-block:focus-visible::after,
+.avail-busy-block:focus-visible::before {
     opacity: 1;
 }
 

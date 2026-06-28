@@ -738,6 +738,7 @@
         var busyEvents = {};
         var drag = null;
         var resize = null;
+        var activeDragPointerId = null;
         var rangeOnlyView = true;
         var frameStart = FRAME_START_UNITS;
         var frameUnits = DAY_UNITS;
@@ -761,7 +762,23 @@
                     if (!info) return;
                     drag = null;
                     resize = null;
+                    activeDragPointerId = null;
                     addRange(info.slotId, 0, info.units);
+                });
+            }
+            var clearButton = card.querySelector('.clear-range');
+            if (clearButton) {
+                clearButton.addEventListener('click', function () {
+                    var info = cardInfo(card);
+                    if (!info) return;
+                    drag = null;
+                    resize = null;
+                    activeDragPointerId = null;
+                    selections[info.slotId] = [];
+                    var message = document.getElementById('editMessage');
+                    if (message) message.textContent = '';
+                    renderCard(card);
+                    updateHidden();
                 });
             }
         });
@@ -1062,6 +1079,10 @@
             var info = cardInfo(card);
             var track = card.querySelector('.availability-track');
             if (!info || !track) return;
+            var clearButton = card.querySelector('.clear-range');
+            if (clearButton) {
+                clearButton.disabled = (selections[info.slotId] || []).length === 0;
+            }
 
             track.innerHTML = '';
             var width = track.clientWidth || window.innerWidth;
@@ -1127,6 +1148,43 @@
             updateHidden();
         }
 
+        function releaseDragPointer(target, pointerId) {
+            if (!target || pointerId === null || pointerId === undefined || !target.hasPointerCapture) return;
+            if (target.hasPointerCapture(pointerId)) {
+                target.releasePointerCapture(pointerId);
+            }
+        }
+
+        function cancelDrag() {
+            if (!drag) return;
+            var current = drag;
+            drag = null;
+            activeDragPointerId = null;
+            renderCard(current.card);
+        }
+
+        function finishDrag() {
+            if (!drag) return;
+            var current = drag;
+            drag = null;
+            activeDragPointerId = null;
+            var info = cardInfo(current.card);
+            if (!info) return;
+            var visualStart = Math.min(current.start, current.end);
+            var visualEnd = Math.max(current.start, current.end) + 1;
+            var absValues = [];
+            for (var v = visualStart; v < visualEnd; v++) {
+                if (isAllowedVisual(info, v)) absValues.push(visualToAbsForInfo(info, v));
+            }
+            if (!absValues.length) {
+                renderCard(current.card);
+                return;
+            }
+            var absStart = Math.min.apply(null, absValues);
+            var absEnd = Math.max.apply(null, absValues) + 1;
+            addRange(current.slotId, absStart - info.start, absEnd - info.start);
+        }
+
         cards.forEach(function (card) {
             var info = cardInfo(card);
             var track = card.querySelector('.availability-track');
@@ -1145,6 +1203,10 @@
                 var cell = e.target.closest('.avail-cell');
                 if (!cell || cell.disabled) return;
                 e.preventDefault();
+                if (track.setPointerCapture) {
+                    track.setPointerCapture(e.pointerId);
+                }
+                activeDragPointerId = e.pointerId;
                 drag = {
                     slotId: info.slotId,
                     card: card,
@@ -1152,6 +1214,20 @@
                     end: Number(cell.dataset.index)
                 };
                 renderCard(card);
+            });
+            track.addEventListener('pointerup', function (e) {
+                if (!drag || drag.card !== card || activeDragPointerId !== e.pointerId) return;
+                finishDrag();
+                releaseDragPointer(track, e.pointerId);
+            });
+            track.addEventListener('pointercancel', function (e) {
+                if (activeDragPointerId !== e.pointerId) return;
+                releaseDragPointer(track, e.pointerId);
+                cancelDrag();
+            });
+            track.addEventListener('lostpointercapture', function (e) {
+                if (activeDragPointerId !== e.pointerId) return;
+                cancelDrag();
             });
         });
 
@@ -1225,21 +1301,16 @@
                 renderAll();
                 return;
             }
-            if (!drag) return;
-            var current = drag;
-            drag = null;
-            var info = cardInfo(current.card);
-            if (!info) return;
-            var visualStart = Math.min(current.start, current.end);
-            var visualEnd = Math.max(current.start, current.end) + 1;
-            var absValues = [];
-            for (var v = visualStart; v < visualEnd; v++) {
-                if (isAllowedVisual(info, v)) absValues.push(visualToAbsForInfo(info, v));
+            finishDrag();
+        });
+
+        document.addEventListener('pointercancel', function () {
+            if (resize) {
+                resize = null;
+                renderAll();
+                return;
             }
-            if (!absValues.length) return;
-            var absStart = Math.min.apply(null, absValues);
-            var absEnd = Math.max.apply(null, absValues) + 1;
-            addRange(current.slotId, absStart - info.start, absEnd - info.start);
+            cancelDrag();
         });
 
         window.aiteApplyAvailability = function (items) {
