@@ -10,6 +10,8 @@ if ($id !== '') {
     $responses = responses_with_answers($id);
     $summary = aggregate($id);
     $dateOnly = !empty($event['date_only']);
+    $ranking = ranked_summary_items($summary, $dateOnly);
+    $responseCount = count($responses);
     $publicUrl = event_url($id);
     $adminUrl = admin_url($id, $token);
     $csvUrl = 'api.php?action=csv&id=' . rawurlencode($id) . '&token=' . rawurlencode($token);
@@ -54,6 +56,8 @@ if ($id !== '') {
 
         <section class="card stack">
             <h2><?= h(t('event.summary')) ?></h2>
+            <?php render_summary_response_count($responseCount); ?>
+            <?php render_summary_ranking($ranking, $dateOnly); ?>
             <div class="result-list">
                 <?php foreach ($summary as $item): ?>
                     <article class="result-row">

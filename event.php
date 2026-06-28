@@ -8,6 +8,9 @@ if (!$event) {
 }
 $slots = get_slots($id);
 $dateOnly = !empty($event['date_only']);
+$summary = aggregate($id);
+$ranking = ranked_summary_items($summary, $dateOnly);
+$responseCount = response_count($id);
 $promptSlots = array_map(fn($s) => ['id' => $s['id'], 'text' => $s['slot_text'], 'label' => slot_label($s['slot_text'])], $slots);
 ?>
 <!doctype html>
@@ -42,8 +45,10 @@ $promptSlots = array_map(fn($s) => ['id' => $s['id'], 'text' => $s['slot_text'],
             <p><?= h(t('event.already_answered_hint')) ?></p>
         </div>
         <h2><?= h(t('event.summary')) ?></h2>
+        <?php render_summary_response_count($responseCount); ?>
+        <?php render_summary_ranking($ranking, $dateOnly); ?>
         <div class="result-list">
-            <?php foreach (aggregate($id) as $item): ?>
+            <?php foreach ($summary as $item): ?>
                 <article class="result-row">
                     <strong><?= h(slot_label($item['slot']['slot_text'])) ?></strong>
                     <?php if ($dateOnly): ?>

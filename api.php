@@ -243,6 +243,10 @@ function translations(): array
             'event.unsupported_slot' => 'この候補はドラッグ回答に対応した形式ではありません。',
             'event.submit' => '回答を提出',
             'event.summary' => '集計',
+            'event.respondent_count' => '現在の回答者数: %d人',
+            'event.ranking' => '候補ランキング',
+            'event.ranking_empty' => 'まだランキングを表示できる回答はありません。',
+            'event.available_people_detail' => '空いている：%d人（%s）',
             'event.best_overlap' => '最も重なる時間: ',
             'event.overlap_aria' => '回答者の重なり',
             'event.no_ok_ranges' => 'まだOK範囲はありません。',
@@ -398,6 +402,10 @@ function translations(): array
             'event.unsupported_slot' => 'This candidate time cannot be answered with drag selection.',
             'event.submit' => 'Submit response',
             'event.summary' => 'Summary',
+            'event.respondent_count' => 'Current responses: %d people',
+            'event.ranking' => 'Candidate ranking',
+            'event.ranking_empty' => 'There are no responses to rank yet.',
+            'event.available_people_detail' => 'Available: %d people (%s)',
             'event.best_overlap' => 'Best overlap: ',
             'event.overlap_aria' => 'Participant overlap',
             'event.no_ok_ranges' => 'No available ranges yet.',
@@ -1003,6 +1011,8 @@ function aggregate(string $eventId): array
             'name' => $row['name'],
             'start_time' => $row['start_time'],
             'end_time' => $row['end_time'],
+            'start_index' => (int)$row['start_index'],
+            'end_index' => (int)$row['end_index'],
         ];
         for ($i = (int)$row['start_index']; $i < (int)$row['end_index']; $i++) {
             if (isset($slotMap[$row['slot_id']]['counts'][$i])) {
@@ -1029,6 +1039,179 @@ function aggregate(string $eventId): array
         return $a['slot']['sort_order'] <=> $b['slot']['sort_order'];
     });
     return $items;
+}
+
+function response_count(string $eventId): int
+{
+    $stmt = db()->prepare('SELECT COUNT(*) FROM responses WHERE event_id = ?');
+    $stmt->execute([$eventId]);
+    return (int)$stmt->fetchColumn();
+}
+
+function render_summary_response_count(int $count): void
+{
+    ?>
+    <p class="summary-response-count"><?= h(t('event.respondent_count', $count)) ?></p>
+    <?php
+}
+
+function name_list_label(array $names): string
+{
+    return implode(current_lang() === 'ja' ? '、' : ', ', $names);
+}
+
+function available_people_detail(int $score, array $names): string
+{
+    return t('event.available_people_detail', $score, name_list_label($names));
+}
+
+function date_available_names(array $item): array
+{
+    $names = [];
+    foreach ($item['answers'] ?? [] as $answer) {
+        if (($answer['status'] ?? '') === 'o') {
+            $names[] = (string)$answer['name'];
+        }
+    }
+    return $names;
+}
+
+function ranking_availability_segments(array $item): array
+{
+    if (empty($item['parsed'])) {
+        return [];
+    }
+
+    $slotStart = (int)$item['parsed']['start'];
+    $slotEnd = (int)$item['parsed']['end'];
+    $duration = max(0, $slotEnd - $slotStart);
+    $unitNames = array_fill(0, $duration, []);
+
+    foreach ($item['ranges'] ?? [] as $range) {
+        $name = (string)($range['name'] ?? '');
+        $start = max(0, (int)($range['start_index'] ?? 0));
+        $end = min($duration, (int)($range['end_index'] ?? 0));
+        if ($name === '' || $end <= $start) {
+            continue;
+        }
+        for ($i = $start; $i < $end; $i++) {
+            $unitNames[$i][] = $name;
+        }
+    }
+
+    $segments = [];
+    $start = null;
+    $currentNames = [];
+    $currentKey = null;
+    for ($i = 0; $i <= $duration; $i++) {
+        $names = $unitNames[$i] ?? [];
+        $names = array_values(array_unique($names));
+        sort($names, SORT_NATURAL | SORT_FLAG_CASE);
+        $key = implode("\n", $names);
+        if ($i < $duration && $start !== null && $key === $currentKey) {
+            continue;
+        }
+        if ($start !== null && $currentNames) {
+            $segments[] = [
+                'score' => count($currentNames),
+                'names' => $currentNames,
+                'start' => $slotStart + $start,
+                'end' => $slotStart + $i,
+                'start_time' => time_from_index($slotStart + $start),
+                'end_time' => time_from_index($slotStart + $i),
+            ];
+        }
+        $start = $i < $duration ? $i : null;
+        $currentNames = $names;
+        $currentKey = $key;
+    }
+    return $segments;
+}
+
+function ranked_summary_items(array $summary, bool $dateOnly, int $limit = 10): array
+{
+    $entries = [];
+    foreach ($summary as $item) {
+        if ($dateOnly) {
+            $names = date_available_names($item);
+            $score = count($names);
+            if ($score <= 0) {
+                continue;
+            }
+            $entries[] = [
+                'score' => $score,
+                'sort_order' => (int)$item['slot']['sort_order'],
+                'label' => slot_label($item['slot']['slot_text']),
+                'detail' => available_people_detail($score, $names),
+            ];
+            continue;
+        }
+
+        foreach (ranking_availability_segments($item) as $segment) {
+            $score = (int)$segment['score'];
+            if ($score <= 0) {
+                continue;
+            }
+            $parsed = $item['parsed'] ?? null;
+            $entries[] = [
+                'score' => $score,
+                'sort_order' => (int)$item['slot']['sort_order'],
+                'start' => (int)$segment['start'],
+                'label' => $parsed ? date_label($parsed['date']) : slot_label($item['slot']['slot_text']),
+                'detail' => $segment['start_time'] . '-' . $segment['end_time'] . ' / ' . available_people_detail($score, $segment['names']),
+            ];
+        }
+    }
+
+    usort($entries, function ($a, $b) {
+        if ($a['score'] !== $b['score']) {
+            return $b['score'] <=> $a['score'];
+        }
+        if ($a['sort_order'] !== $b['sort_order']) {
+            return $a['sort_order'] <=> $b['sort_order'];
+        }
+        return ($a['start'] ?? 0) <=> ($b['start'] ?? 0);
+    });
+
+    $ranked = [];
+    $previousScore = null;
+    foreach ($entries as $entry) {
+        if ($previousScore !== $entry['score']) {
+            $currentRank = count($ranked) + 1;
+            $previousScore = $entry['score'];
+        }
+        $entry['rank'] = $currentRank;
+        $ranked[] = $entry;
+        if (count($ranked) >= $limit) {
+            break;
+        }
+    }
+    return $ranked;
+}
+
+function render_summary_ranking(array $ranking, bool $dateOnly): void
+{
+    ?>
+    <section class="summary-ranking" aria-labelledby="summaryRankingTitle">
+        <h3 id="summaryRankingTitle"><?= h(t('event.ranking')) ?></h3>
+        <?php if (!$ranking): ?>
+            <p class="muted"><?= h(t('event.ranking_empty')) ?></p>
+        <?php else: ?>
+            <ol class="summary-ranking-list">
+                <?php foreach ($ranking as $item): ?>
+                    <li class="summary-rank-row">
+                        <span class="rank-badge"><?= h((string)$item['rank']) ?></span>
+                        <span class="rank-main">
+                            <strong><?= h($item['label']) ?></strong>
+                            <span class="rank-detail"><?= h($item['detail']) ?></span>
+                        </span>
+                        <span class="rank-score"><?= h(t('common.person_count', (int)$item['score'])) ?></span>
+                    </li>
+                <?php endforeach; ?>
+            </ol>
+        <?php endif; ?>
+    </section>
+    <?php
 }
 
 function responses_with_answers(string $eventId): array

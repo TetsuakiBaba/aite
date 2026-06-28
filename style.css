@@ -1237,6 +1237,81 @@ label span {
     color: var(--muted);
 }
 
+.summary-response-count {
+    width: fit-content;
+    border-radius: 999px;
+    background: #eef7f5;
+    color: var(--text);
+    padding: 6px 10px;
+    font-size: .92rem;
+    font-weight: 800;
+}
+
+.summary-ranking {
+    display: grid;
+    gap: 10px;
+    border-block: 1px solid var(--line);
+    padding-block: 14px;
+}
+
+.summary-ranking h3 {
+    color: var(--muted);
+    font-size: .92rem;
+}
+
+.summary-ranking-list {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.summary-rank-row {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+}
+
+.rank-badge {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: var(--primary);
+    color: #fff;
+    display: grid;
+    place-items: center;
+    font-size: .9rem;
+    font-weight: 800;
+}
+
+.rank-main {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+}
+
+.rank-main strong,
+.rank-detail {
+    overflow-wrap: anywhere;
+}
+
+.rank-detail {
+    color: var(--muted);
+    font-size: .86rem;
+}
+
+.rank-score {
+    border-radius: 999px;
+    background: var(--primary-soft);
+    color: #087792;
+    padding: 4px 9px;
+    font-size: .84rem;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
 .overlap-chart {
     display: grid;
     gap: 4px;
