@@ -16,6 +16,9 @@
     var DAY_MINUTES = 24 * 60;
     var FRAME_START_MINUTES = 6 * 60;
     var FRAME_START_UNITS = FRAME_START_MINUTES / SLOT_MINUTES;
+    var CREATE_STANDARD_START_UNITS = 7 * 60 / SLOT_MINUTES;
+    var CREATE_STANDARD_END_UNITS = 21 * 60 / SLOT_MINUTES;
+    var CREATE_STANDARD_UNITS = CREATE_STANDARD_END_UNITS - CREATE_STANDARD_START_UNITS;
     var timeText = function (index) {
         var minutes = index * SLOT_MINUTES;
         return pad(Math.floor(minutes / 60)) + ':' + pad(minutes % 60);
@@ -56,10 +59,17 @@
         });
     };
     var parseSlot = function (text) {
-        var m = String(text).match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2})-(\d{2}):(\d{2})$/);
+        var m = String(text).match(/^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})$/);
         if (!m) return null;
-        var start = (Number(m[2]) * 60 + Number(m[3])) / SLOT_MINUTES;
-        var end = (Number(m[4]) * 60 + Number(m[5])) / SLOT_MINUTES;
+        var startHour = Number(m[2]);
+        var startMinute = Number(m[3]);
+        var endHour = Number(m[4]);
+        var endMinute = Number(m[5]);
+        if (startHour < 0 || startHour > 24 || endHour < 0 || endHour > 24) return null;
+        if (startMinute < 0 || startMinute > 59 || endMinute < 0 || endMinute > 59) return null;
+        if ((startHour === 24 && startMinute !== 0) || (endHour === 24 && endMinute !== 0)) return null;
+        var start = (startHour * 60 + startMinute) / SLOT_MINUTES;
+        var end = (endHour * 60 + endMinute) / SLOT_MINUTES;
         if (start < 0 || end > DAY_UNITS || end <= start || Math.floor(start) !== start || Math.floor(end) !== end) return null;
         return {
             date: m[1],
@@ -114,6 +124,7 @@
         var timelineWrap = document.getElementById('timelineWrap');
         var timeline = document.getElementById('timeline');
         var timelineTitle = document.getElementById('timelineTitle');
+        var timelineRangeToggle = document.getElementById('timelineRangeToggle');
         var selectedSlots = document.getElementById('selectedSlots');
         var slotsInput = document.getElementById('slotsInput');
         var manualPanel = document.getElementById('manualPanel');
@@ -132,6 +143,7 @@
         var dateOnlyHint = document.getElementById('dateOnlyHint');
         var timelineHint = document.getElementById('timelineHint');
         var manualLabel = document.getElementById('manualLabel');
+        var manualFormatHint = document.getElementById('manualFormatHint');
         var slots = [];
         var today = new Date();
         var viewDate = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -141,10 +153,15 @@
         var dragEnd = null;
         var dragging = false;
         var resizeSlot = null;
-        var suppressTimeClick = false;
+        var suppressTimeClickUntil = 0;
+        var activeTimelinePointerId = null;
+        var hoverIndex = null;
+        var hoverX = null;
+        var showTimeLens = false;
+        var fullTimelineRange = false;
         var labelStep = labelStepForWidth(timeline ? timeline.clientWidth : window.innerWidth);
-        var frameStart = FRAME_START_UNITS;
-        var frameUnits = DAY_UNITS;
+        var frameStart = CREATE_STANDARD_START_UNITS;
+        var frameUnits = CREATE_STANDARD_UNITS;
 
         function titleIsReady() {
             return !!(titleInput && titleInput.value.trim());
@@ -187,8 +204,9 @@
             if (dateOnlyHint) dateOnlyHint.hidden = !enabled;
             if (timelineHint) timelineHint.textContent = enabled ? timelineHint.dataset.dateHint : timelineHint.dataset.timeHint;
             if (manualLabel) manualLabel.textContent = enabled ? manualLabel.dataset.dateLabel : manualLabel.dataset.timeLabel;
+            if (manualFormatHint) manualFormatHint.textContent = enabled ? manualFormatHint.dataset.dateHint : manualFormatHint.dataset.timeHint;
             if (manualSlots) {
-                manualSlots.placeholder = enabled ? '2026-07-01\n2026-07-02' : '2026-07-01 13:00-14:00\n2026-07-02 10:00-12:00';
+                manualSlots.placeholder = enabled ? '2026-07-01\n2026-07-02' : '2026-07-01 9:00-10:00\n2026-07-02 13:00-14:00';
             }
             if (timelineWrap && enabled) timelineWrap.hidden = true;
             if (enabled) activeDate = null;
@@ -239,38 +257,90 @@
         }
 
         function visualToAbs(index) {
-            return (index + frameStart) % frameUnits;
+            return frameStart + index;
         }
 
         function absToVisual(index) {
-            return (index - frameStart + frameUnits) % frameUnits;
+            return index - frameStart;
         }
 
-        function visualHourLabel(index) {
-            if (index % labelStep !== 0 && index !== 18) return '';
-            if (index === 18) return '24';
-            return pad((6 + index) % 24);
+        function frameHourCount() {
+            return frameUnits / (60 / SLOT_MINUTES);
+        }
+
+        function visualHourLabel(hourIndex) {
+            if (hourIndex % labelStep !== 0) return '';
+            return pad(frameStart / (60 / SLOT_MINUTES) + hourIndex);
         }
 
         function visualParts(absStart, absEnd) {
-            if (absEnd <= absStart) return [];
-            var start = absToVisual(absStart);
-            var end = absToVisual(absEnd);
-            if (start < end) return [{ start: start, end: end }];
-            var parts = [{ start: start, end: frameUnits }];
-            if (end > 0) parts.push({ start: 0, end: end });
-            return parts;
+            var start = Math.max(frameStart, absStart);
+            var end = Math.min(frameStart + frameUnits, absEnd);
+            if (end <= start) return [];
+            return [{ start: absToVisual(start), end: absToVisual(end) }];
         }
 
         function selectedAbsRange(visualStart, visualEnd) {
-            var values = [];
-            for (var i = visualStart; i < visualEnd; i++) {
-                values.push(visualToAbs(i));
+            if (visualEnd <= visualStart) return null;
+            return { start: visualToAbs(visualStart), end: visualToAbs(visualEnd - 1) + 1 };
+        }
+
+        function resetTimelineHover() {
+            hoverIndex = null;
+            hoverX = null;
+            showTimeLens = false;
+        }
+
+        function setTimelineFrame() {
+            frameStart = fullTimelineRange ? 0 : CREATE_STANDARD_START_UNITS;
+            frameUnits = fullTimelineRange ? DAY_UNITS : CREATE_STANDARD_UNITS;
+        }
+
+        function setTimelineRangeToggleState() {
+            if (!timelineRangeToggle) return;
+            timelineRangeToggle.textContent = fullTimelineRange ? timelineRangeToggle.dataset.standardLabel : timelineRangeToggle.dataset.fullLabel;
+            timelineRangeToggle.setAttribute('aria-pressed', fullTimelineRange ? 'true' : 'false');
+        }
+
+        function supportsTimeLens(e) {
+            return !e.pointerType || e.pointerType === 'mouse' || e.pointerType === 'pen';
+        }
+
+        function updateTimeLensPointer(e) {
+            var rect = timeline.getBoundingClientRect();
+            hoverX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+        }
+
+        function renderTimeLens(track) {
+            if (!showTimeLens || hoverIndex === null || dateOnlyMode()) return;
+
+            var lens = document.createElement('div');
+            lens.className = 'time-lens';
+            if (hoverX !== null) {
+                var trackWidth = track.clientWidth || 0;
+                var lensWidth = Math.min(132, Math.max(0, trackWidth - 12));
+                var left = Math.max(6, Math.min(trackWidth - lensWidth - 6, hoverX - lensWidth / 2));
+                lens.style.left = left + 'px';
             }
-            var start = Math.min.apply(null, values);
-            var end = Math.max.apply(null, values) + 1;
-            if (end - start !== values.length) return null;
-            return { start: start, end: end };
+
+            var heading = document.createElement('div');
+            heading.className = 'time-lens-heading';
+            heading.textContent = timeText(visualToAbs(hoverIndex));
+            lens.appendChild(heading);
+
+            if (dragging && dragStart !== null && dragEnd !== null) {
+                var visualStart = Math.min(dragStart, dragEnd);
+                var visualEnd = Math.max(dragStart, dragEnd) + 1;
+                var absRange = selectedAbsRange(visualStart, visualEnd);
+                if (absRange) {
+                    var range = document.createElement('div');
+                    range.className = 'time-lens-range';
+                    range.textContent = timeText(absRange.start) + '-' + timeText(absRange.end);
+                    lens.appendChild(range);
+                }
+            }
+
+            track.appendChild(lens);
         }
 
         function appendTimeBlock(track, className, label, absStart, absEnd, onClick, resizeData) {
@@ -300,14 +370,14 @@
                         e.preventDefault();
                         e.stopPropagation();
                         timeline.setPointerCapture(e.pointerId);
-                        suppressTimeClick = true;
+                        suppressTimeClickUntil = 0;
                         resizeSlot = Object.assign({ edge: 'start' }, resizeData);
                     });
                     right.addEventListener('pointerdown', function (e) {
                         e.preventDefault();
                         e.stopPropagation();
                         timeline.setPointerCapture(e.pointerId);
-                        suppressTimeClick = true;
+                        suppressTimeClickUntil = 0;
                         resizeSlot = Object.assign({ edge: 'end' }, resizeData);
                     });
                 } else {
@@ -449,8 +519,10 @@
 
             var labelRow = document.createElement('div');
             labelRow.className = 'time-label-row';
+            var hourCount = frameHourCount();
+            labelRow.style.gridTemplateColumns = 'repeat(' + hourCount + ', minmax(0, 1fr))';
             track.appendChild(labelRow);
-            for (var h = 0; h < 24; h++) {
+            for (var h = 0; h < hourCount; h++) {
                 var label = document.createElement('div');
                 label.className = 'time-label';
                 label.textContent = visualHourLabel(h);
@@ -466,14 +538,14 @@
                 cell.type = 'button';
                 cell.className = 'time-cell';
                 cell.dataset.index = String(i);
+                if (showTimeLens && hoverIndex === i) cell.classList.add('is-hovered');
                 cell.setAttribute('aria-label', timeText(visualToAbs(i)));
                 selectRow.appendChild(cell);
             }
 
             rangesFor(activeDate).forEach(function (range) {
                 appendTimeBlock(track, 'time-block', timeText(range.start) + '-' + timeText(range.end), range.start, range.end, function (e) {
-                    if (e.target.closest('.time-handle') || suppressTimeClick) {
-                        suppressTimeClick = false;
+                    if (e.target.closest('.time-handle') || e.timeStamp < suppressTimeClickUntil) {
                         return;
                     }
                     e.stopPropagation();
@@ -494,12 +566,18 @@
                     appendTimeBlock(track, 'time-block preview', timeText(absRange.start) + '-' + timeText(absRange.end), absRange.start, absRange.end);
                 }
             }
+
+            renderTimeLens(track);
         }
 
         function openTimeline(dateText) {
             var shouldAnimate = activeDate !== dateText || timelineWrap.hidden;
+            if (activeDate !== dateText) {
+                resetTimelineHover();
+            }
             activeDate = dateText;
             timelineWrap.hidden = false;
+            setTimelineRangeToggleState();
             if (shouldAnimate) {
                 activeDatePulse = dateText;
                 renderCalendar();
@@ -535,6 +613,7 @@
         function finishDrag(shouldSave) {
             if (!dragging) return;
             dragging = false;
+            activeTimelinePointerId = null;
             var visualStart = Math.min(dragStart, dragEnd);
             var visualEnd = Math.max(dragStart, dragEnd) + 1;
             var absRange = selectedAbsRange(visualStart, visualEnd);
@@ -551,23 +630,35 @@
             if (!cell || !activeDate) return;
             e.preventDefault();
             dragging = true;
+            activeTimelinePointerId = e.pointerId;
             dragStart = Number(cell.dataset.index);
             dragEnd = dragStart;
+            hoverIndex = dragStart;
+            showTimeLens = supportsTimeLens(e);
+            if (showTimeLens) updateTimeLensPointer(e);
             timeline.setPointerCapture(e.pointerId);
             renderTimeline();
         });
 
         timeline.addEventListener('pointermove', function (e) {
+            var hover = indexFromPointer(e);
+            var shouldShowLens = supportsTimeLens(e);
+            if (shouldShowLens) updateTimeLensPointer(e);
+            if (hover !== null && shouldShowLens && (hover !== hoverIndex || !showTimeLens)) {
+                hoverIndex = hover;
+                showTimeLens = true;
+                if (!dragging && !resizeSlot) renderTimeline();
+            }
             if (resizeSlot) {
-                var resizeIndex = indexFromPointer(e);
+                var resizeIndex = hover;
                 if (resizeIndex === null) return;
                 var absolute = visualToAbs(resizeIndex);
                 var nextStart = resizeSlot.start;
                 var nextEnd = resizeSlot.end;
                 if (resizeSlot.edge === 'start') {
-                    nextStart = Math.max(0, Math.min(absolute, nextEnd - 1));
+                    nextStart = Math.max(frameStart, Math.min(absolute, nextEnd - 1));
                 } else {
-                    nextEnd = Math.min(frameUnits, Math.max(absolute + 1, nextStart + 1));
+                    nextEnd = Math.min(frameStart + frameUnits, Math.max(absolute + 1, nextStart + 1));
                 }
                 replaceSlot(resizeSlot.original, slotText(resizeSlot.date, nextStart, nextEnd));
                 resizeSlot = {
@@ -577,10 +668,11 @@
                     start: nextStart,
                     end: nextEnd
                 };
+                renderTimeline();
                 return;
             }
             if (!dragging) return;
-            var next = indexFromPointer(e);
+            var next = hover;
             if (next !== null && next !== dragEnd) {
                 dragEnd = next;
                 renderTimeline();
@@ -589,23 +681,42 @@
         timeline.addEventListener('pointerup', function (e) {
             if (resizeSlot) {
                 resizeSlot = null;
+                activeTimelinePointerId = null;
+                suppressTimeClickUntil = e.timeStamp + 250;
                 if (timeline.hasPointerCapture(e.pointerId)) {
                     timeline.releasePointerCapture(e.pointerId);
                 }
                 return;
             }
+            if (activeTimelinePointerId !== null && activeTimelinePointerId !== e.pointerId) return;
             finishDrag(true);
             if (timeline.hasPointerCapture(e.pointerId)) {
                 timeline.releasePointerCapture(e.pointerId);
             }
         });
-        timeline.addEventListener('pointercancel', function () {
+        timeline.addEventListener('pointercancel', function (e) {
+            if (activeTimelinePointerId !== null && activeTimelinePointerId !== e.pointerId) return;
             resizeSlot = null;
+            activeTimelinePointerId = null;
+            suppressTimeClickUntil = 0;
             finishDrag(false);
         });
-        timeline.addEventListener('lostpointercapture', function () {
+        timeline.addEventListener('lostpointercapture', function (e) {
+            if (activeTimelinePointerId !== null && activeTimelinePointerId !== e.pointerId) return;
             resizeSlot = null;
-            finishDrag(false);
+        });
+        document.addEventListener('pointerup', function (e) {
+            if (!dragging || activeTimelinePointerId !== e.pointerId) return;
+            var pointerId = e.pointerId;
+            finishDrag(true);
+            if (timeline.hasPointerCapture(pointerId)) {
+                timeline.releasePointerCapture(pointerId);
+            }
+        });
+        timeline.addEventListener('pointerleave', function () {
+            if (dragging || resizeSlot) return;
+            resetTimelineHover();
+            renderTimeline();
         });
 
         document.getElementById('prevMonth').addEventListener('click', function () {
@@ -618,8 +729,23 @@
         });
         document.getElementById('closeTimeline').addEventListener('click', function () {
             activeDate = null;
+            resetTimelineHover();
             timelineWrap.hidden = true;
         });
+        if (timelineRangeToggle) {
+            setTimelineRangeToggleState();
+            timelineRangeToggle.addEventListener('click', function () {
+                fullTimelineRange = !fullTimelineRange;
+                dragging = false;
+                dragStart = null;
+                dragEnd = null;
+                resizeSlot = null;
+                resetTimelineHover();
+                setTimelineFrame();
+                setTimelineRangeToggleState();
+                if (activeDate) renderTimeline();
+            });
+        }
         timelineWrap.addEventListener('animationend', function () {
             timelineWrap.classList.remove('is-opening');
         });
@@ -658,6 +784,7 @@
             dateOnlyToggle.addEventListener('change', function () {
                 slots = [];
                 activeDate = null;
+                resetTimelineHover();
                 if (timelineWrap) timelineWrap.hidden = true;
                 if (manualSlots) manualSlots.value = '';
                 setDateOnlyState();
@@ -739,6 +866,7 @@
         var drag = null;
         var resize = null;
         var activeDragPointerId = null;
+        var hover = null;
         var rangeOnlyView = true;
         var frameStart = FRAME_START_UNITS;
         var frameUnits = DAY_UNITS;
@@ -799,6 +927,17 @@
             if (index < 0) index = 0;
             if (index >= units) index = units - 1;
             return index;
+        }
+
+        function supportsAvailabilityLens(e) {
+            return !e.pointerType || e.pointerType === 'mouse' || e.pointerType === 'pen';
+        }
+
+        function resetAvailabilityHover(card) {
+            var current = hover;
+            hover = null;
+            if (card) renderCard(card);
+            else if (current && current.card) renderCard(current.card);
         }
 
         function visualToAbs(index) {
@@ -883,6 +1022,44 @@
                 }
                 track.appendChild(block);
             });
+        }
+
+        function renderAvailabilityLens(track, info) {
+            if (!hover || hover.slotId !== info.slotId) return;
+            var lens = document.createElement('div');
+            lens.className = 'time-lens availability-lens';
+            var units = displayUnits(info);
+            var trackWidth = track.clientWidth || 0;
+            var lensWidth = Math.min(190, Math.max(0, trackWidth - 12));
+            var left = Math.max(6, Math.min(trackWidth - lensWidth - 6, hover.x - lensWidth / 2));
+            lens.style.left = left + 'px';
+
+            var heading = document.createElement('div');
+            heading.className = 'time-lens-heading';
+            heading.textContent = timeText(visualToAbsForInfo(info, hover.index));
+            lens.appendChild(heading);
+
+            var hint = document.createElement('div');
+            hint.className = 'time-lens-hint';
+            hint.textContent = tr('js.select_available_range');
+            lens.appendChild(hint);
+
+            if (drag && drag.slotId === info.slotId) {
+                var visualStart = Math.min(drag.start, drag.end);
+                var visualEnd = Math.max(drag.start, drag.end) + 1;
+                var absValues = [];
+                for (var v = visualStart; v < visualEnd; v++) {
+                    if (isAllowedVisual(info, v)) absValues.push(visualToAbsForInfo(info, v));
+                }
+                if (absValues.length) {
+                    var range = document.createElement('div');
+                    range.className = 'time-lens-range';
+                    range.textContent = timeText(Math.min.apply(null, absValues)) + '-' + timeText(Math.max.apply(null, absValues) + 1);
+                    lens.appendChild(range);
+                }
+            }
+
+            if (units > 0) track.appendChild(lens);
         }
 
         function minuteToVisual(minute) {
@@ -1108,11 +1285,10 @@
                 cell.type = 'button';
                 cell.className = 'avail-cell';
                 cell.dataset.index = String(i);
+                if (hover && hover.slotId === info.slotId && hover.index === i) cell.classList.add('is-hovered');
                 if (!isAllowedVisual(info, i)) {
                     cell.classList.add('disabled');
                     cell.disabled = true;
-                } else {
-                    cell.dataset.tooltip = tr('js.select_available_range');
                 }
                 cell.setAttribute('aria-label', timeText(visualToAbsForInfo(info, i)));
                 selectRow.appendChild(cell);
@@ -1140,6 +1316,7 @@
                 }
             }
 
+            renderAvailabilityLens(track, info);
             renderBusyList(card, info);
         }
 
@@ -1203,6 +1380,15 @@
                 var cell = e.target.closest('.avail-cell');
                 if (!cell || cell.disabled) return;
                 e.preventDefault();
+                if (supportsAvailabilityLens(e)) {
+                    var rect = track.getBoundingClientRect();
+                    hover = {
+                        slotId: info.slotId,
+                        card: card,
+                        index: Number(cell.dataset.index),
+                        x: Math.max(0, Math.min(rect.width, e.clientX - rect.left))
+                    };
+                }
                 if (track.setPointerCapture) {
                     track.setPointerCapture(e.pointerId);
                 }
@@ -1225,9 +1411,30 @@
                 releaseDragPointer(track, e.pointerId);
                 cancelDrag();
             });
-            track.addEventListener('lostpointercapture', function (e) {
-                if (activeDragPointerId !== e.pointerId) return;
-                cancelDrag();
+            track.addEventListener('pointermove', function (e) {
+                if (!supportsAvailabilityLens(e)) return;
+                var selectRow = card.querySelector('.avail-select-row');
+                if (!selectRow) return;
+                var next = pointerIndex(selectRow, e, displayUnits(info));
+                if (!isAllowedVisual(info, next)) {
+                    resetAvailabilityHover(card);
+                    return;
+                }
+                var rect = track.getBoundingClientRect();
+                var nextHover = {
+                    slotId: info.slotId,
+                    card: card,
+                    index: next,
+                    x: Math.max(0, Math.min(rect.width, e.clientX - rect.left))
+                };
+                var changed = !hover || hover.slotId !== nextHover.slotId || hover.index !== nextHover.index || Math.abs(hover.x - nextHover.x) > 2;
+                hover = nextHover;
+                if (changed && (!drag || drag.card === card) && (!resize || resize.card === card)) renderCard(card);
+            });
+            track.addEventListener('pointerleave', function () {
+                if (drag && drag.card === card) return;
+                if (resize && resize.card === card) return;
+                resetAvailabilityHover(card);
             });
         });
 
@@ -1253,6 +1460,7 @@
                 rangeOnlyView = !rangeOnlyView;
                 drag = null;
                 resize = null;
+                hover = null;
                 labelSteps = {};
                 viewToggle.textContent = rangeOnlyView ? viewToggle.dataset.fullLabel : viewToggle.dataset.rangeLabel;
                 viewToggle.classList.toggle('active', rangeOnlyView);
@@ -1388,6 +1596,7 @@
         var form = document.getElementById('responseForm');
         var nameInput = document.getElementById('responseName');
         var passwordInput = document.getElementById('editPassword');
+        var noteInput = document.getElementById('responseNote');
         var loadButton = document.getElementById('loadResponse');
         var message = document.getElementById('editMessage');
         if (!form || !nameInput || !passwordInput) return;
@@ -1426,6 +1635,7 @@
                 }).then(function (json) {
                     if (window.aiteSetAvailability) window.aiteSetAvailability(json.ranges || []);
                     if (window.aiteSetDateOnlyAnswers) window.aiteSetDateOnlyAnswers(json.answers || []);
+                    if (noteInput) noteInput.value = json.note || '';
                     if (window.aiteShowResponseEditor) window.aiteShowResponseEditor();
                     if (message) message.textContent = tr('js.previous_loaded');
                 }).catch(function (error) {

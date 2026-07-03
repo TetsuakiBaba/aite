@@ -49,6 +49,7 @@ function init_db(PDO $pdo): void
             event_id TEXT NOT NULL,
             name TEXT NOT NULL,
             password_hash TEXT NOT NULL DEFAULT '',
+            note TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             UNIQUE(event_id, name),
@@ -77,6 +78,10 @@ function init_db(PDO $pdo): void
 
     if (!db_has_column($pdo, 'responses', 'password_hash')) {
         $pdo->exec("ALTER TABLE responses ADD COLUMN password_hash TEXT NOT NULL DEFAULT ''");
+    }
+
+    if (!db_has_column($pdo, 'responses', 'note')) {
+        $pdo->exec("ALTER TABLE responses ADD COLUMN note TEXT NOT NULL DEFAULT ''");
     }
 
     if (!db_has_column($pdo, 'events', 'updated_at')) {
@@ -211,10 +216,14 @@ function translations(): array
             'create.prev_month' => '前の月',
             'create.next_month' => '次の月',
             'create.close' => '閉じる',
-            'create.timeline_hint' => '06-05の枠で10分単位に横ドラッグ。作成済みブロックはクリックで削除。',
+            'create.show_full_range' => 'フルレンジ表示',
+            'create.show_standard_range' => '07-21表示に戻す',
+            'create.timeline_hint' => '標準は07-21の枠で10分単位に横ドラッグ。必要な場合はフルレンジ表示に切り替えられます。作成済みブロックはクリックで削除。',
             'create.date_only_timeline_hint' => '候補にしたい日をクリックしてください。作成済みの日付はもう一度クリックで削除できます。',
             'create.manual_slots' => '候補日時を直接入力',
             'create.manual_dates' => '候補日を直接入力',
+            'create.manual_slots_hint' => '書式: YYYY-MM-DD H:MM-H:MM（例: 2026-07-25 9:00-10:00）。時刻は10分刻みで入力してください。',
+            'create.manual_dates_hint' => '書式: YYYY-MM-DD（例: 2026-07-25）。1行に1件ずつ入力してください。',
             'create.apply' => '反映',
             'create.selected' => '選択済み',
             'create.submit' => '保存してURLを作成',
@@ -233,8 +242,12 @@ function translations(): array
             'event.edit_password' => '編集用パスワード',
             'event.edit_password_placeholder' => '未変更なら名前と同じ',
             'event.load_previous' => '前回回答を読み込む',
+            'event.note' => 'メモ',
+            'event.note_placeholder' => '例: どの候補も難しいですが、7/25の午後なら調整できます。',
+            'event.note_hint' => '任意。候補以外で調整できそうな日程や補足があれば記入してください。',
+            'event.response_notes' => '回答者メモ',
             'event.show_range_only' => '候補範囲だけ表示',
-            'event.show_full_day' => '06-05表示に戻す',
+            'event.show_full_day' => 'フルレンジ表示に戻す',
             'event.drag_hint' => 'スケジュール調整可能な範囲をドラッグして選択してください。作成済みの範囲はクリックで削除できます。',
             'event.select_all_available' => '全てOK',
             'event.select_all_available_aria' => '全ての時間帯をOKにする',
@@ -282,6 +295,7 @@ function translations(): array
             'admin.delete_confirm' => 'このイベントを削除します。実行しますか？',
             'admin.delete' => '削除',
             'common.name' => '名前',
+            'common.note' => 'メモ',
             'common.error' => 'エラー: ',
             'common.person_count' => '%d人',
             'common.no_overlap' => '重なりなし',
@@ -289,7 +303,7 @@ function translations(): array
             'error.previous_not_found' => '前回回答が見つかりません。',
             'error.invalid_admin_url' => '管理URLが正しくありません。',
             'error.create_required' => 'イベント名と候補日時を入力してください。',
-            'error.slot_30_minute_required' => '候補日時は YYYY-MM-DD HH:MM-HH:MM 形式で、開始・終了時刻を10分刻みにしてください。',
+            'error.slot_30_minute_required' => '候補日時は YYYY-MM-DD H:MM-H:MM 形式で、開始・終了時刻を10分刻みにしてください。',
             'error.min_duration_required' => 'OK範囲は最低%d分以上にしてください。',
             'error.min_duration_invalid' => '最低必要時間は10分刻みで入力してください。',
             'error.slot_min_duration_required' => '候補日時は最低必要時間以上にしてください。',
@@ -372,10 +386,14 @@ function translations(): array
             'create.prev_month' => 'Previous month',
             'create.next_month' => 'Next month',
             'create.close' => 'Close',
-            'create.timeline_hint' => 'Drag horizontally in 10-minute steps on the 06-05 timeline. Click an existing block to delete it.',
+            'create.show_full_range' => 'Show full range',
+            'create.show_standard_range' => 'Back to 07-21',
+            'create.timeline_hint' => 'By default, drag in 10-minute steps on the 07-21 timeline. Switch to the full range when needed. Click an existing block to delete it.',
             'create.date_only_timeline_hint' => 'Click dates to add them as candidates. Click an existing date again to remove it.',
             'create.manual_slots' => 'Enter candidate times directly',
             'create.manual_dates' => 'Enter candidate dates directly',
+            'create.manual_slots_hint' => 'Format: YYYY-MM-DD H:MM-H:MM, for example 2026-07-25 9:00-10:00. Use 10-minute increments.',
+            'create.manual_dates_hint' => 'Format: YYYY-MM-DD, for example 2026-07-25. Enter one item per line.',
             'create.apply' => 'Apply',
             'create.selected' => 'Selected',
             'create.submit' => 'Save and create URLs',
@@ -394,8 +412,12 @@ function translations(): array
             'event.edit_password' => 'Edit password',
             'event.edit_password_placeholder' => 'Defaults to your name if unchanged',
             'event.load_previous' => 'Load previous response',
+            'event.note' => 'Note',
+            'event.note_placeholder' => 'Example: None of these work, but I could adjust on the afternoon of Jul 25.',
+            'event.note_hint' => 'Optional. Add alternate dates or context that would help with scheduling.',
+            'event.response_notes' => 'Respondent notes',
             'event.show_range_only' => 'Show candidate range only',
-            'event.show_full_day' => 'Back to 06-05 view',
+            'event.show_full_day' => 'Back to full range view',
             'event.drag_hint' => 'Drag only within the white range. Click an existing range to delete it.',
             'event.select_all_available' => 'All OK',
             'event.select_all_available_aria' => 'Mark all times as OK',
@@ -443,6 +465,7 @@ function translations(): array
             'admin.delete_confirm' => 'Delete this event. Continue?',
             'admin.delete' => 'Delete',
             'common.name' => 'Name',
+            'common.note' => 'Note',
             'common.error' => 'Error: ',
             'common.person_count' => '%d people',
             'common.no_overlap' => 'No overlap',
@@ -450,7 +473,7 @@ function translations(): array
             'error.previous_not_found' => 'No previous response was found.',
             'error.invalid_admin_url' => 'The admin URL is invalid.',
             'error.create_required' => 'Enter an event name and at least one candidate time.',
-            'error.slot_30_minute_required' => 'Candidate times must use YYYY-MM-DD HH:MM-HH:MM format with start and end times on 10-minute increments.',
+            'error.slot_30_minute_required' => 'Candidate times must use YYYY-MM-DD H:MM-H:MM format with start and end times on 10-minute increments.',
             'error.min_duration_required' => 'Available ranges must be at least %d minutes.',
             'error.min_duration_invalid' => 'Enter the minimum required time in 10-minute increments.',
             'error.slot_min_duration_required' => 'Candidate times must be at least the minimum required time.',
@@ -773,11 +796,24 @@ function normalize_status(string $value): ?string
 
 function parse_slot_text(string $text): ?array
 {
-    if (!preg_match('/^(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2})-(\d{2}):(\d{2})$/', trim($text), $m)) {
+    if (!preg_match('/^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})$/', trim($text), $m)) {
         return null;
     }
-    $startMinutes = (int)$m[2] * 60 + (int)$m[3];
-    $endMinutes = (int)$m[4] * 60 + (int)$m[5];
+    $startHour = (int)$m[2];
+    $startMinute = (int)$m[3];
+    $endHour = (int)$m[4];
+    $endMinute = (int)$m[5];
+    if ($startHour < 0 || $startHour > 24 || $endHour < 0 || $endHour > 24) {
+        return null;
+    }
+    if ($startMinute < 0 || $startMinute > 59 || $endMinute < 0 || $endMinute > 59) {
+        return null;
+    }
+    if (($startHour === 24 && $startMinute !== 0) || ($endHour === 24 && $endMinute !== 0)) {
+        return null;
+    }
+    $startMinutes = $startHour * 60 + $startMinute;
+    $endMinutes = $endHour * 60 + $endMinute;
     if ($startMinutes % 10 !== 0 || $endMinutes % 10 !== 0) {
         return null;
     }
@@ -811,6 +847,15 @@ function time_from_index(int $index): string
 function duration_units_to_minutes(int $units): int
 {
     return $units * 10;
+}
+
+function normalize_response_note(string $note): string
+{
+    $note = str_replace(["\r\n", "\r"], "\n", trim($note));
+    if (function_exists('mb_substr')) {
+        return mb_substr($note, 0, 2000);
+    }
+    return substr($note, 0, 2000);
 }
 
 function date_label(string $date): string
@@ -865,7 +910,7 @@ function create_event(string $title, string $description, array $slotTexts, int 
     return ['id' => $id, 'admin_token' => $token];
 }
 
-function save_response(string $eventId, string $name, string $password, array $answers = [], array $ranges = []): void
+function save_response(string $eventId, string $name, string $password, string $note = '', array $answers = [], array $ranges = []): void
 {
     $pdo = db();
     $event = get_event($eventId);
@@ -877,6 +922,7 @@ function save_response(string $eventId, string $name, string $password, array $a
         $slotMap[$slot['id']] = ['slot' => $slot, 'parsed' => $parsed];
     }
     $validSlotIds = array_flip(array_keys($slotMap));
+    $note = normalize_response_note($note);
     $now = date('c');
 
     $pdo->beginTransaction();
@@ -891,15 +937,15 @@ function save_response(string $eventId, string $name, string $password, array $a
             }
             $responseId = (int)$existing['id'];
             $passwordHash = $existing['password_hash'] !== '' ? $existing['password_hash'] : password_hash($password, PASSWORD_DEFAULT);
-            $stmt = $pdo->prepare('UPDATE responses SET password_hash = ?, updated_at = ? WHERE id = ?');
-            $stmt->execute([$passwordHash, $now, $responseId]);
+            $stmt = $pdo->prepare('UPDATE responses SET password_hash = ?, note = ?, updated_at = ? WHERE id = ?');
+            $stmt->execute([$passwordHash, $note, $now, $responseId]);
             $stmt = $pdo->prepare('DELETE FROM answers WHERE response_id = ?');
             $stmt->execute([$responseId]);
             $stmt = $pdo->prepare('DELETE FROM answer_ranges WHERE response_id = ?');
             $stmt->execute([$responseId]);
         } else {
-            $stmt = $pdo->prepare('INSERT INTO responses (event_id, name, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?)');
-            $stmt->execute([$eventId, $name, password_hash($password, PASSWORD_DEFAULT), $now, $now]);
+            $stmt = $pdo->prepare('INSERT INTO responses (event_id, name, password_hash, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)');
+            $stmt->execute([$eventId, $name, password_hash($password, PASSWORD_DEFAULT), $note, $now, $now]);
             $responseId = (int)$pdo->lastInsertId();
         }
 
@@ -1050,6 +1096,33 @@ function response_count(string $eventId): int
     $stmt = db()->prepare('SELECT COUNT(*) FROM responses WHERE event_id = ?');
     $stmt->execute([$eventId]);
     return (int)$stmt->fetchColumn();
+}
+
+function response_notes(string $eventId): array
+{
+    $stmt = db()->prepare("SELECT name, note FROM responses WHERE event_id = ? AND note <> '' ORDER BY updated_at DESC, name");
+    $stmt->execute([$eventId]);
+    return $stmt->fetchAll();
+}
+
+function render_response_notes(array $notes): void
+{
+    if (!$notes) {
+        return;
+    }
+    ?>
+    <section class="response-notes" aria-labelledby="responseNotesTitle">
+        <h3 id="responseNotesTitle"><?= h(t('event.response_notes')) ?></h3>
+        <div class="response-note-list">
+            <?php foreach ($notes as $note): ?>
+                <article class="response-note">
+                    <strong><?= h($note['name']) ?></strong>
+                    <p><?= nl2br(h($note['note'])) ?></p>
+                </article>
+            <?php endforeach; ?>
+        </div>
+    </section>
+    <?php
 }
 
 function render_summary_response_count(int $count): void
@@ -1310,6 +1383,20 @@ function response_answers_for_edit(string $eventId, string $name, string $passwo
     return $answers;
 }
 
+function response_note_for_edit(string $eventId, string $name, string $password): string
+{
+    $stmt = db()->prepare('SELECT note, password_hash FROM responses WHERE event_id = ? AND name = ?');
+    $stmt->execute([$eventId, $name]);
+    $response = $stmt->fetch();
+    if (!$response) {
+        throw new RuntimeException(t('error.previous_not_found'));
+    }
+    if ($response['password_hash'] !== '' && !password_verify($password, $response['password_hash'])) {
+        throw new RuntimeException(t('error.wrong_password'));
+    }
+    return (string)($response['note'] ?? '');
+}
+
 function range_label(array $ranges): string
 {
     $labels = [];
@@ -1538,6 +1625,7 @@ function handle_response(): void
     $event = get_event($eventId);
     $name = trim($_POST['name'] ?? '');
     $password = (string)($_POST['edit_password'] ?? '');
+    $note = (string)($_POST['note'] ?? '');
 
     if (!$event || $name === '' || $password === '') {
         redirect_to('event.php?id=' . rawurlencode($eventId) . '&error=' . rawurlencode(t('error.response_required')) . '&lang=' . rawurlencode(current_lang()));
@@ -1553,7 +1641,7 @@ function handle_response(): void
     }
 
     try {
-        save_response($eventId, $name, $password, $_POST['answers'] ?? [], $ranges);
+        save_response($eventId, $name, $password, $note, $_POST['answers'] ?? [], $ranges);
     } catch (RuntimeException $e) {
         redirect_to('event.php?id=' . rawurlencode($eventId) . '&error=' . rawurlencode($e->getMessage()) . '&lang=' . rawurlencode(current_lang()));
     }
@@ -1573,7 +1661,12 @@ function handle_load_response(): void
     }
 
     try {
-        echo json_encode(['ok' => true, 'ranges' => response_ranges_for_edit($eventId, $name, $password), 'answers' => response_answers_for_edit($eventId, $name, $password)], JSON_UNESCAPED_UNICODE);
+        echo json_encode([
+            'ok' => true,
+            'ranges' => response_ranges_for_edit($eventId, $name, $password),
+            'answers' => response_answers_for_edit($eventId, $name, $password),
+            'note' => response_note_for_edit($eventId, $name, $password),
+        ], JSON_UNESCAPED_UNICODE);
     } catch (RuntimeException $e) {
         http_response_code(403);
         echo json_encode(['ok' => false, 'error' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
@@ -1594,7 +1687,7 @@ function handle_csv(): void
     header('Content-Disposition: attachment; filename="aite_' . $eventId . '.csv"');
     $out = fopen('php://output', 'w');
     fwrite($out, "\xEF\xBB\xBF");
-    fputcsv($out, array_merge([t('common.name')], array_map(fn($slot) => slot_label($slot['slot_text']), $slots)));
+    fputcsv($out, array_merge([t('common.name')], array_map(fn($slot) => slot_label($slot['slot_text']), $slots), [t('common.note')]));
     foreach ($responses as $response) {
         $row = [$response['name']];
         foreach ($slots as $slot) {
@@ -1602,6 +1695,7 @@ function handle_csv(): void
                 ? status_label($response['answers'][$slot['id']] ?? null)
                 : range_label($response['ranges'][$slot['id']] ?? []);
         }
+        $row[] = $response['note'] ?? '';
         fputcsv($out, $row);
     }
     fclose($out);

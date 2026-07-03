@@ -11,6 +11,7 @@ $dateOnly = !empty($event['date_only']);
 $summary = aggregate($id);
 $ranking = ranked_summary_items($summary, $dateOnly);
 $responseCount = response_count($id);
+$notes = response_notes($id);
 $promptSlots = array_map(fn($s) => ['id' => $s['id'], 'text' => $s['slot_text'], 'label' => slot_label($s['slot_text'])], $slots);
 ?>
 <!doctype html>
@@ -47,6 +48,7 @@ $promptSlots = array_map(fn($s) => ['id' => $s['id'], 'text' => $s['slot_text'],
         <h2><?= h(t('event.summary')) ?></h2>
         <?php render_summary_response_count($responseCount); ?>
         <?php render_summary_ranking($ranking, $dateOnly); ?>
+        <?php render_response_notes($notes); ?>
         <div class="result-list">
             <?php foreach ($summary as $item): ?>
                 <article class="result-row">
@@ -164,6 +166,12 @@ $promptSlots = array_map(fn($s) => ['id' => $s['id'], 'text' => $s['slot_text'],
                 <?php endif; ?>
             <?php endforeach; ?>
         </div>
+
+        <label class="response-note-field">
+            <span><?= h(t('event.note')) ?></span>
+            <textarea name="note" id="responseNote" rows="4" maxlength="2000" placeholder="<?= h(t('event.note_placeholder')) ?>" aria-describedby="responseNoteHint"></textarea>
+        </label>
+        <p class="hint" id="responseNoteHint"><?= h(t('event.note_hint')) ?></p>
 
         <button class="button primary full" type="submit" id="responseSubmit"><?= h(t('event.submit')) ?></button>
     </form>

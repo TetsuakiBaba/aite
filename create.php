@@ -74,7 +74,12 @@
             <div class="timeline-wrap" id="timelineWrap" hidden>
                 <div class="section-head">
                     <h3 id="timelineTitle"></h3>
-                    <button type="button" class="button small secondary" id="closeTimeline"><?= h(t('create.close')) ?></button>
+                    <div class="timeline-actions">
+                        <button type="button" class="button small secondary" id="timelineRangeToggle"
+                            data-full-label="<?= h(t('create.show_full_range')) ?>"
+                            data-standard-label="<?= h(t('create.show_standard_range')) ?>"></button>
+                        <button type="button" class="button small secondary" id="closeTimeline"><?= h(t('create.close')) ?></button>
+                    </div>
                 </div>
                 <p class="hint" id="timelineHint" data-time-hint="<?= h(t('create.timeline_hint')) ?>" data-date-hint="<?= h(t('create.date_only_timeline_hint')) ?>"><?= h(t('create.timeline_hint')) ?></p>
                 <div class="timeline" id="timeline"></div>
@@ -83,8 +88,11 @@
             <div class="manual" id="manualPanel" hidden>
                 <label>
                     <span id="manualLabel" data-time-label="<?= h(t('create.manual_slots')) ?>" data-date-label="<?= h(t('create.manual_dates')) ?>"><?= h(t('create.manual_slots')) ?></span>
-                    <textarea id="manualSlots" rows="5" placeholder="2026-07-01 13:00-14:00&#10;2026-07-02 10:00-12:00"></textarea>
+                    <textarea id="manualSlots" rows="5" placeholder="2026-07-01 9:00-10:00&#10;2026-07-02 13:00-14:00" aria-describedby="manualFormatHint manualMessage"></textarea>
                 </label>
+                <p class="hint manual-format-hint" id="manualFormatHint"
+                    data-time-hint="<?= h(t('create.manual_slots_hint')) ?>"
+                    data-date-hint="<?= h(t('create.manual_dates_hint')) ?>"><?= h(t('create.manual_slots_hint')) ?></p>
                 <span class="inline-message error" id="manualMessage"></span>
                 <button type="button" class="button small" id="mergeManual"><?= h(t('create.apply')) ?></button>
             </div>

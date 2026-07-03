@@ -12,6 +12,7 @@ if ($id !== '') {
     $dateOnly = !empty($event['date_only']);
     $ranking = ranked_summary_items($summary, $dateOnly);
     $responseCount = count($responses);
+    $notes = response_notes($id);
     $publicUrl = event_url($id);
     $adminUrl = admin_url($id, $token);
     $csvUrl = 'api.php?action=csv&id=' . rawurlencode($id) . '&token=' . rawurlencode($token);
@@ -58,6 +59,7 @@ if ($id !== '') {
             <h2><?= h(t('event.summary')) ?></h2>
             <?php render_summary_response_count($responseCount); ?>
             <?php render_summary_ranking($ranking, $dateOnly); ?>
+            <?php render_response_notes($notes); ?>
             <div class="result-list">
                 <?php foreach ($summary as $item): ?>
                     <article class="result-row">
@@ -115,6 +117,7 @@ if ($id !== '') {
                             <?php foreach ($slots as $slot): ?>
                                 <th><?= h(slot_label($slot['slot_text'])) ?></th>
                             <?php endforeach; ?>
+                            <th><?= h(t('common.note')) ?></th>
                         </tr>
                         </thead>
                         <tbody>
@@ -124,6 +127,7 @@ if ($id !== '') {
                                 <?php foreach ($slots as $slot): ?>
                                     <td><?= $dateOnly ? h(status_label($response['answers'][$slot['id']] ?? null)) : h(range_label($response['ranges'][$slot['id']] ?? [])) ?></td>
                                 <?php endforeach; ?>
+                                <td class="note-cell"><?= nl2br(h($response['note'] ?? '')) ?></td>
                             </tr>
                         <?php endforeach; ?>
                         </tbody>
