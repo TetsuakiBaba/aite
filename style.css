@@ -1409,6 +1409,87 @@ label span {
     font-size: .86rem;
 }
 
+.rank-person {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    color: inherit;
+    vertical-align: baseline;
+}
+
+.rank-person.has-note {
+    cursor: help;
+    outline: 0;
+}
+
+.rank-person.has-note:focus-visible {
+    border-radius: 6px;
+    box-shadow: 0 0 0 3px rgba(7, 136, 169, .16);
+}
+
+.rank-note-badge {
+    position: relative;
+    width: 13px;
+    height: 10px;
+    border: 1.5px solid var(--primary);
+    border-radius: 4px;
+    background: #fff;
+    flex: 0 0 auto;
+}
+
+.rank-note-badge::after {
+    content: "";
+    position: absolute;
+    right: 1px;
+    bottom: -4px;
+    width: 5px;
+    height: 5px;
+    border-right: 1.5px solid var(--primary);
+    border-bottom: 1.5px solid var(--primary);
+    background: #fff;
+    transform: rotate(35deg);
+}
+
+.rank-note-tooltip {
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 9px);
+    z-index: 25;
+    width: max-content;
+    max-width: min(280px, 80vw);
+    border-radius: 8px;
+    background: #1f2933;
+    box-shadow: 0 12px 30px rgba(8, 54, 64, .2);
+    color: #fff;
+    font-size: .82rem;
+    font-weight: 700;
+    line-height: 1.45;
+    opacity: 0;
+    padding: 8px 10px;
+    pointer-events: none;
+    text-align: left;
+    transform: translateX(-50%) translateY(3px);
+    transition: opacity .12s ease, transform .12s ease;
+    white-space: normal;
+}
+
+.rank-note-tooltip::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 100%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: #1f2933;
+}
+
+.rank-person.has-note:hover .rank-note-tooltip,
+.rank-person.has-note:focus-visible .rank-note-tooltip {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
 .rank-score {
     border-radius: 999px;
     background: var(--primary-soft);

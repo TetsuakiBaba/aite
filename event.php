@@ -9,9 +9,9 @@ if (!$event) {
 $slots = get_slots($id);
 $dateOnly = !empty($event['date_only']);
 $summary = aggregate($id);
-$ranking = ranked_summary_items($summary, $dateOnly);
 $responseCount = response_count($id);
 $notes = response_notes($id);
+$ranking = ranked_summary_items($summary, $dateOnly);
 $promptSlots = array_map(fn($s) => ['id' => $s['id'], 'text' => $s['slot_text'], 'label' => slot_label($s['slot_text'])], $slots);
 ?>
 <!doctype html>
@@ -47,7 +47,7 @@ $promptSlots = array_map(fn($s) => ['id' => $s['id'], 'text' => $s['slot_text'],
         </div>
         <h2><?= h(t('event.summary')) ?></h2>
         <?php render_summary_response_count($responseCount); ?>
-        <?php render_summary_ranking($ranking, $dateOnly); ?>
+        <?php render_summary_ranking($ranking, $dateOnly, $notes); ?>
         <?php render_response_notes($notes); ?>
         <div class="result-list">
             <?php foreach ($summary as $item): ?>

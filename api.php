@@ -261,6 +261,7 @@ function translations(): array
             'event.respondent_count' => '現在の回答者数: %d人',
             'event.ranking' => '候補ランキング',
             'event.ranking_empty' => 'まだランキングを表示できる回答はありません。',
+            'event.available_people_prefix' => '空いている：%d人',
             'event.available_people_detail' => '空いている：%d人（%s）',
             'event.best_overlap' => '最も重なる時間: ',
             'event.overlap_aria' => '回答者の重なり',
@@ -431,6 +432,7 @@ function translations(): array
             'event.respondent_count' => 'Current responses: %d people',
             'event.ranking' => 'Candidate ranking',
             'event.ranking_empty' => 'There are no responses to rank yet.',
+            'event.available_people_prefix' => 'Available: %d people',
             'event.available_people_detail' => 'Available: %d people (%s)',
             'event.best_overlap' => 'Best overlap: ',
             'event.overlap_aria' => 'Participant overlap',
@@ -1137,9 +1139,27 @@ function name_list_label(array $names): string
     return implode(current_lang() === 'ja' ? '、' : ', ', $names);
 }
 
+function available_people_prefix(int $score): string
+{
+    return t('event.available_people_prefix', $score);
+}
+
 function available_people_detail(int $score, array $names): string
 {
     return t('event.available_people_detail', $score, name_list_label($names));
+}
+
+function response_note_map(array $notes): array
+{
+    $map = [];
+    foreach ($notes as $note) {
+        $name = (string)($note['name'] ?? '');
+        $text = (string)($note['note'] ?? '');
+        if ($name !== '' && $text !== '') {
+            $map[$name] = $text;
+        }
+    }
+    return $map;
 }
 
 function date_available_names(array $item): array
@@ -1219,7 +1239,8 @@ function ranked_summary_items(array $summary, bool $dateOnly, int $limit = 10): 
                 'score' => $score,
                 'sort_order' => (int)$item['slot']['sort_order'],
                 'label' => slot_label($item['slot']['slot_text']),
-                'detail' => available_people_detail($score, $names),
+                'detail_prefix' => available_people_prefix($score),
+                'names' => $names,
             ];
             continue;
         }
@@ -1235,7 +1256,8 @@ function ranked_summary_items(array $summary, bool $dateOnly, int $limit = 10): 
                 'sort_order' => (int)$item['slot']['sort_order'],
                 'start' => (int)$segment['start'],
                 'label' => $parsed ? date_label($parsed['date']) : slot_label($item['slot']['slot_text']),
-                'detail' => $segment['start_time'] . '-' . $segment['end_time'] . ' / ' . available_people_detail($score, $segment['names']),
+                'detail_prefix' => $segment['start_time'] . '-' . $segment['end_time'] . ' / ' . available_people_prefix($score),
+                'names' => $segment['names'],
             ];
         }
     }
@@ -1266,8 +1288,58 @@ function ranked_summary_items(array $summary, bool $dateOnly, int $limit = 10): 
     return $ranked;
 }
 
-function render_summary_ranking(array $ranking, bool $dateOnly): void
+function rank_people_open(): string
 {
+    return current_lang() === 'ja' ? '（' : ' (';
+}
+
+function rank_people_close(): string
+{
+    return current_lang() === 'ja' ? '）' : ')';
+}
+
+function rank_people_separator(): string
+{
+    return current_lang() === 'ja' ? '、' : ', ';
+}
+
+function render_rank_person(string $name, string $note): void
+{
+    if ($note === '') {
+        echo '<span class="rank-person">' . h($name) . '</span>';
+        return;
+    }
+    ?>
+    <span class="rank-person has-note" tabindex="0">
+        <span class="rank-person-name"><?= h($name) ?></span>
+        <span class="rank-note-badge" aria-hidden="true"></span>
+        <span class="rank-note-tooltip" role="tooltip"><?= nl2br(h($note)) ?></span>
+    </span>
+    <?php
+}
+
+function render_summary_rank_detail(array $item, array $noteMap): void
+{
+    $names = array_values(array_map('strval', $item['names'] ?? []));
+    if (!$names) {
+        echo h((string)($item['detail'] ?? ''));
+        return;
+    }
+
+    echo h((string)($item['detail_prefix'] ?? ''));
+    echo h(rank_people_open());
+    foreach ($names as $index => $name) {
+        if ($index > 0) {
+            echo h(rank_people_separator());
+        }
+        render_rank_person($name, (string)($noteMap[$name] ?? ''));
+    }
+    echo h(rank_people_close());
+}
+
+function render_summary_ranking(array $ranking, bool $dateOnly, array $notes = []): void
+{
+    $noteMap = response_note_map($notes);
     ?>
     <section class="summary-ranking" aria-labelledby="summaryRankingTitle">
         <h3 id="summaryRankingTitle"><?= h(t('event.ranking')) ?></h3>
@@ -1280,7 +1352,7 @@ function render_summary_ranking(array $ranking, bool $dateOnly): void
                         <span class="rank-badge"><?= h((string)$item['rank']) ?></span>
                         <span class="rank-main">
                             <strong><?= h($item['label']) ?></strong>
-                            <span class="rank-detail"><?= h($item['detail']) ?></span>
+                            <span class="rank-detail"><?php render_summary_rank_detail($item, $noteMap); ?></span>
                         </span>
                         <span class="rank-score"><?= h(t('common.person_count', (int)$item['score'])) ?></span>
                     </li>
