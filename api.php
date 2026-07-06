@@ -354,6 +354,8 @@ function translations(): array
             'js.delete_history' => '履歴から削除',
             'js.history_response' => '回答者リンク',
             'js.history_admin' => '作成者リンク',
+            'js.history_answered_at' => '回答日時',
+            'js.history_created_at' => '作成日時',
         ],
         'en' => [
             'app.description' => 'Ask AI, paste the answer, and schedule with less friction.',
@@ -525,6 +527,8 @@ function translations(): array
             'js.delete_history' => 'Remove from history',
             'js.history_response' => 'Response link',
             'js.history_admin' => 'Creator link',
+            'js.history_answered_at' => 'Answered',
+            'js.history_created_at' => 'Created',
         ],
     ];
 }

@@ -195,7 +195,7 @@ $promptSlots = array_map(fn($s) => ['id' => $s['id'], 'text' => $s['slot_text'],
 
 <?php site_footer(); ?>
 <?php js_i18n(); ?>
-<script>window.AITE_EVENT_HISTORY_ITEM=<?= json_encode(['title' => $event['title'], 'url' => event_url($id), 'type' => 'response'], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;window.AITE_RESPONSE_STATE=<?= json_encode(['id' => $id, 'title' => $event['title'], 'url' => event_url($id), 'saved' => !empty($_GET['saved'])], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;window.AITE_RESPONSE_CONFIG=<?= json_encode(['minDurationUnits' => (int)($event['min_duration_units'] ?? 0), 'minDurationMinutes' => duration_units_to_minutes((int)($event['min_duration_units'] ?? 0)), 'dateOnly' => $dateOnly], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;</script>
+<script>window.AITE_EVENT_HISTORY_ITEM=<?= json_encode(['id' => $id, 'title' => $event['title'], 'url' => event_url($id), 'type' => 'response'], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;window.AITE_RESPONSE_STATE=<?= json_encode(['id' => $id, 'title' => $event['title'], 'url' => event_url($id), 'saved' => !empty($_GET['saved'])], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;window.AITE_RESPONSE_CONFIG=<?= json_encode(['minDurationUnits' => (int)($event['min_duration_units'] ?? 0), 'minDurationMinutes' => duration_units_to_minutes((int)($event['min_duration_units'] ?? 0)), 'dateOnly' => $dateOnly], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;</script>
 <script src="app.js"></script>
 </body>
 </html>

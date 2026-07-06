@@ -1943,7 +1943,7 @@
 
     function saveHistoryItems(items) {
         try {
-            localStorage.setItem('aiteRecentEvents', JSON.stringify(items.slice(0, 12)));
+            localStorage.setItem('aiteRecentEvents', JSON.stringify(sortedHistoryItems(items).slice(0, 12)));
         } catch (e) {
             // localStorage can be unavailable in restricted browser modes.
         }
@@ -1958,16 +1958,64 @@
         return type === 'admin' ? tr('js.history_admin') : tr('js.history_response');
     }
 
+    function historyDateValue(item, type) {
+        if (!item) return null;
+        if (type === 'admin') return item.createdAt || null;
+        if (item.answeredAt) return item.answeredAt;
+        var answered = answeredItems().find(function (candidate) {
+            return candidate && ((item.id && String(candidate.id) === String(item.id)) || candidate.url === item.url);
+        });
+        return answered ? answered.answeredAt : null;
+    }
+
+    function historyDateTime(item) {
+        var value = historyDateValue(item, historyType(item));
+        if (!value) return 0;
+        var date = typeof value === 'number' ? new Date(value) : new Date(String(value).replace(' ', 'T'));
+        return isNaN(date.getTime()) ? 0 : date.getTime();
+    }
+
+    function sortedHistoryItems(items) {
+        return (items || []).slice().sort(function (a, b) {
+            return historyDateTime(b) - historyDateTime(a);
+        });
+    }
+
+    function formatHistoryDate(value) {
+        if (!value) return '';
+        var date = typeof value === 'number' ? new Date(value) : new Date(String(value).replace(' ', 'T'));
+        if (isNaN(date.getTime())) return '';
+        return date.toLocaleString(lang === 'en' ? 'en-US' : 'ja-JP', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    }
+
+    function historyDateLabel(item, type) {
+        var formatted = formatHistoryDate(historyDateValue(item, type));
+        if (!formatted) return '';
+        return (type === 'admin' ? tr('js.history_created_at') : tr('js.history_answered_at')) + ': ' + formatted;
+    }
+
     function recordEventHistory() {
         var item = window.AITE_EVENT_HISTORY_ITEM;
         if (!item || !item.title || !item.url || !window.localStorage) return;
+        var existing = null;
         var items = historyItems().filter(function (candidate) {
+            if (candidate.url === item.url) existing = candidate;
             return candidate.url !== item.url;
         });
+        var type = historyType(item);
         items.unshift({
+            id: item.id ? String(item.id) : '',
             title: String(item.title),
             url: String(item.url),
-            type: historyType(item),
+            type: type,
+            createdAt: item.createdAt || null,
+            answeredAt: type === 'response' && existing ? existing.answeredAt || null : null,
             viewedAt: Date.now()
         });
         saveHistoryItems(items);
@@ -1978,7 +2026,7 @@
         var list = document.getElementById('recentEventList');
         if (!section || !list || !window.localStorage) return;
 
-        var items = historyItems();
+        var items = sortedHistoryItems(historyItems());
         section.hidden = items.length === 0;
         list.innerHTML = '';
         items.forEach(function (item) {
@@ -1993,11 +2041,19 @@
 
             var title = document.createElement('strong');
             title.textContent = item.title;
+            var typeName = historyType(item);
             var type = document.createElement('span');
-            type.className = 'recent-event-type';
-            type.textContent = historyTypeLabel(historyType(item));
+            type.className = 'recent-event-type recent-event-type-' + typeName;
+            type.textContent = historyTypeLabel(typeName);
             link.appendChild(title);
             link.appendChild(type);
+            var dateLabel = historyDateLabel(item, typeName);
+            if (dateLabel) {
+                var meta = document.createElement('span');
+                meta.className = 'recent-event-meta';
+                meta.textContent = dateLabel;
+                link.appendChild(meta);
+            }
 
             var remove = document.createElement('button');
             remove.type = 'button';
@@ -2045,16 +2101,37 @@
     function recordAnsweredResponse() {
         var state = currentResponseState();
         if (!state || !state.saved || !window.localStorage) return;
+        var answeredAt = Date.now();
         var items = answeredItems().filter(function (item) {
-            return item.id !== state.id && item.url !== state.url;
+            return String(item.id || '') !== String(state.id) && item.url !== state.url;
         });
         items.unshift({
             id: String(state.id),
             title: String(state.title || ''),
             url: String(state.url),
-            answeredAt: Date.now()
+            answeredAt: answeredAt
         });
         saveAnsweredItems(items);
+
+        var history = historyItems();
+        var matched = false;
+        history = history.map(function (item) {
+            if (!item || (String(item.id || '') !== String(state.id) && item.url !== state.url)) return item;
+            matched = true;
+            item.answeredAt = answeredAt;
+            return item;
+        });
+        if (!matched) {
+            history.unshift({
+                id: String(state.id),
+                title: String(state.title || ''),
+                url: String(state.url),
+                type: 'response',
+                answeredAt: answeredAt,
+                viewedAt: answeredAt
+            });
+        }
+        saveHistoryItems(history);
     }
 
     function hasAnsweredCurrentResponse() {
