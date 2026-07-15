@@ -1636,6 +1636,14 @@ label span {
     overflow: auto;
 }
 
+.warning-modal {
+    width: min(480px, 100%);
+}
+
+.warning-modal p {
+    color: var(--muted);
+}
+
 .disclaimer-modal {
     width: min(560px, 100%);
     display: grid;

@@ -861,6 +861,8 @@
 
         var cards = Array.prototype.slice.call(document.querySelectorAll('.availability-card'));
         var viewToggle = document.getElementById('toggleRangeView');
+        var minDurationModal = document.getElementById('minDurationModal');
+        var closeMinDurationModalButton = document.getElementById('closeMinDurationModal');
         var selections = {};
         var busyEvents = {};
         var drag = null;
@@ -876,6 +878,37 @@
         var responseConfig = window.AITE_RESPONSE_CONFIG || {};
         var minDurationUnits = Math.max(0, Number(responseConfig.minDurationUnits || 0));
         var minDurationMinutes = Math.max(0, Number(responseConfig.minDurationMinutes || minDurationUnits * SLOT_MINUTES));
+        var minDurationModalReturnFocus = null;
+
+        function closeMinDurationModal() {
+            if (!minDurationModal || minDurationModal.hidden) return;
+            minDurationModal.hidden = true;
+            if (minDurationModalReturnFocus && document.contains(minDurationModalReturnFocus)) {
+                minDurationModalReturnFocus.focus();
+            }
+            minDurationModalReturnFocus = null;
+        }
+
+        function showMinDurationWarning() {
+            var message = document.getElementById('editMessage');
+            if (message) message.textContent = tr('js.min_duration_required', minDurationMinutes);
+            if (!minDurationModal || !closeMinDurationModalButton) return;
+            minDurationModalReturnFocus = document.activeElement;
+            minDurationModal.hidden = false;
+            closeMinDurationModalButton.focus();
+        }
+
+        if (closeMinDurationModalButton) {
+            closeMinDurationModalButton.addEventListener('click', closeMinDurationModal);
+        }
+        if (minDurationModal) {
+            minDurationModal.addEventListener('click', function (e) {
+                if (e.target === minDurationModal) closeMinDurationModal();
+            });
+            document.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape' && !minDurationModal.hidden) closeMinDurationModal();
+            });
+        }
 
         cards.forEach(function (card) {
             var slotId = card.dataset.slotId;
@@ -1176,11 +1209,10 @@
             }, []);
         }
 
-        function addRange(slotId, start, end) {
+        function addRange(slotId, start, end, warnWhenTooShort) {
             if (end <= start) return;
             if (minDurationUnits > 0 && end - start < minDurationUnits) {
-                var message = document.getElementById('editMessage');
-                if (message) message.textContent = tr('js.min_duration_required', minDurationMinutes);
+                if (warnWhenTooShort) showMinDurationWarning();
                 return;
             }
             var message = document.getElementById('editMessage');
@@ -1359,7 +1391,7 @@
             }
             var absStart = Math.min.apply(null, absValues);
             var absEnd = Math.max.apply(null, absValues) + 1;
-            addRange(current.slotId, absStart - info.start, absEnd - info.start);
+            addRange(current.slotId, absStart - info.start, absEnd - info.start, true);
         }
 
         cards.forEach(function (card) {

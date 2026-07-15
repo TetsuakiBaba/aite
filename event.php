@@ -8,6 +8,7 @@ if (!$event) {
 }
 $slots = get_slots($id);
 $dateOnly = !empty($event['date_only']);
+$minDurationMinutes = duration_units_to_minutes((int)($event['min_duration_units'] ?? 0));
 $summary = aggregate($id);
 $responseCount = response_count($id);
 $notes = response_notes($id);
@@ -175,6 +176,16 @@ $promptSlots = array_map(fn($s) => ['id' => $s['id'], 'text' => $s['slot_text'],
 
         <button class="button primary full" type="submit" id="responseSubmit"><?= h(t('event.submit')) ?></button>
     </form>
+
+    <?php if (!$dateOnly && $minDurationMinutes > 0): ?>
+        <div class="modal-backdrop" id="minDurationModal" hidden>
+            <section class="card stack modal-card warning-modal" role="dialog" aria-modal="true" aria-labelledby="minDurationModalTitle" aria-describedby="minDurationModalDescription">
+                <h2 id="minDurationModalTitle"><?= h(t('event.min_duration_warning_title')) ?></h2>
+                <p id="minDurationModalDescription"><?= h(t('event.min_duration_warning_body', $minDurationMinutes, $minDurationMinutes)) ?></p>
+                <button type="button" class="button primary" id="closeMinDurationModal"><?= h(t('event.min_duration_warning_close')) ?></button>
+            </section>
+        </div>
+    <?php endif; ?>
 
     <div class="modal-backdrop" id="aiModal" hidden>
         <section class="card stack modal-card" role="dialog" aria-modal="true" aria-labelledby="aiModalTitle">
