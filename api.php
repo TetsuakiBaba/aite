@@ -356,6 +356,7 @@ function translations(): array
             'js.ai_applied_count' => '%d件自動反映しました。',
             'js.check_json' => 'JSONを確認してください: %s',
             'js.delete_history' => '履歴から削除',
+            'js.history_expired' => '自動削除されました',
             'js.history_response' => '回答者リンク',
             'js.history_admin' => '作成者リンク',
             'js.history_answered_at' => '回答日時',
@@ -533,6 +534,7 @@ function translations(): array
             'js.ai_applied_count' => 'Applied %d items.',
             'js.check_json' => 'Check the JSON: %s',
             'js.delete_history' => 'Remove from history',
+            'js.history_expired' => 'Auto-deleted',
             'js.history_response' => 'Response link',
             'js.history_admin' => 'Creator link',
             'js.history_answered_at' => 'Answered',
@@ -1758,6 +1760,20 @@ function handle_load_response(): void
     exit;
 }
 
+function handle_events_exist(): void
+{
+    header('Content-Type: application/json; charset=UTF-8');
+    cleanup_expired_events();
+    $ids = array_values(array_filter(array_map('strval', (array)($_POST['ids'] ?? [])), fn($id) => $id !== ''));
+    $ids = array_slice(array_unique($ids), 0, 50);
+    $exists = [];
+    foreach ($ids as $id) {
+        $exists[$id] = get_event($id) !== null;
+    }
+    echo json_encode(['ok' => true, 'exists' => $exists], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 function handle_csv(): void
 {
     $eventId = $_GET['id'] ?? '';
@@ -1793,6 +1809,7 @@ if (basename($_SERVER['SCRIPT_FILENAME'] ?? '') === 'api.php') {
             'create' => handle_create(),
             'response' => handle_response(),
             'load_response' => handle_load_response(),
+            'events_exist' => handle_events_exist(),
             'csv' => handle_csv(),
             default => exit('Unknown action'),
         };

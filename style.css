@@ -313,6 +313,22 @@ label span {
     line-height: 1.35;
 }
 
+.recent-event-card-expired {
+    background: #f3f4f6;
+    box-shadow: none;
+}
+
+.recent-event-card-expired .recent-event-link {
+    cursor: default;
+    opacity: .55;
+    filter: grayscale(1);
+}
+
+.recent-event-type-expired {
+    background: #e5e7eb;
+    color: #6b7280;
+}
+
 .recent-event-delete {
     width: 40px;
     min-height: 40px;

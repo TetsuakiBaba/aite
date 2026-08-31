@@ -2053,6 +2053,15 @@
         saveHistoryItems(items);
     }
 
+    function historyEventId(item) {
+        if (!item) return '';
+        if (item.id) return String(item.id);
+        var match = String(item.url || '').match(/[?&]id=([^&#]+)/);
+        return match ? decodeURIComponent(match[1]) : '';
+    }
+
+    var expiredEventIds = {};
+
     function renderRecentEvents() {
         var section = document.getElementById('recentEvents');
         var list = document.getElementById('recentEventList');
@@ -2063,12 +2072,13 @@
         list.innerHTML = '';
         items.forEach(function (item) {
             if (!item || !item.title || !item.url) return;
+            var expired = expiredEventIds[historyEventId(item)] === true;
 
             var card = document.createElement('article');
-            card.className = 'recent-event-card';
+            card.className = 'recent-event-card' + (expired ? ' recent-event-card-expired' : '');
 
-            var link = document.createElement('a');
-            link.href = item.url;
+            var link = document.createElement(expired ? 'div' : 'a');
+            if (!expired) link.href = item.url;
             link.className = 'recent-event-link';
 
             var title = document.createElement('strong');
@@ -2079,6 +2089,12 @@
             type.textContent = historyTypeLabel(typeName);
             link.appendChild(title);
             link.appendChild(type);
+            if (expired) {
+                var expiredBadge = document.createElement('span');
+                expiredBadge.className = 'recent-event-type recent-event-type-expired';
+                expiredBadge.textContent = tr('js.history_expired');
+                link.appendChild(expiredBadge);
+            }
             var dateLabel = historyDateLabel(item, typeName);
             if (dateLabel) {
                 var meta = document.createElement('span');
@@ -2105,6 +2121,41 @@
             list.appendChild(card);
         });
         section.hidden = list.children.length === 0;
+    }
+
+    function refreshExpiredEvents() {
+        var list = document.getElementById('recentEventList');
+        if (!list || !window.localStorage || !window.fetch) return;
+        var ids = [];
+        historyItems().forEach(function (item) {
+            var id = historyEventId(item);
+            if (id && ids.indexOf(id) < 0) ids.push(id);
+        });
+        if (!ids.length) return;
+
+        var body = new URLSearchParams();
+        ids.forEach(function (id) {
+            body.append('ids[]', id);
+        });
+        fetch('api.php?action=events_exist', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+            body: body.toString()
+        }).then(function (response) {
+            return response.json();
+        }).then(function (json) {
+            if (!json || !json.ok || !json.exists) return;
+            var changed = false;
+            ids.forEach(function (id) {
+                if (json.exists[id] === false && !expiredEventIds[id]) {
+                    expiredEventIds[id] = true;
+                    changed = true;
+                }
+            });
+            if (changed) renderRecentEvents();
+        }).catch(function () {
+            // Network errors leave the list untouched.
+        });
     }
 
     function answeredItems() {
@@ -2215,6 +2266,7 @@
         recordEventHistory();
         recordAnsweredResponse();
         renderRecentEvents();
+        refreshExpiredEvents();
         initCopyUrlButtons();
         initCreate();
         initAnsweredResponseMode();
