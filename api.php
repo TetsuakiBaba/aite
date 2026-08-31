@@ -195,6 +195,7 @@ function translations(): array
             'home.hero' => 'AIに聞いて、貼るだけ。',
             'home.lead' => '予定調整をもっと軽く。',
             'home.create' => 'イベントを作成する',
+            'home.retention_note' => '3ヶ月間更新のないイベントは自動的に削除されます。',
             'home.recent_events' => '最近開いたイベント',
             'home.history_response' => '回答者リンク',
             'home.history_admin' => '作成者リンク',
@@ -284,7 +285,7 @@ function translations(): array
             'admin.event_deleted' => 'イベントを削除しました。',
             'admin.database_reset' => 'データベースをリセットしました。',
             'admin.event_count' => 'イベント数: ',
-            'admin.auto_delete' => '自動削除: 最終更新から1ヶ月後',
+            'admin.auto_delete' => '自動削除: 最終更新から3ヶ月後',
             'admin.reset_confirm' => 'すべてのイベントと回答を削除します。実行しますか？',
             'admin.reset_database' => 'データベースをリセット',
             'admin.event_list' => '作成されているイベント一覧',
@@ -371,6 +372,7 @@ function translations(): array
             'home.hero' => 'Ask AI, then paste.',
             'home.lead' => 'Make scheduling lighter.',
             'home.create' => 'Create an event',
+            'home.retention_note' => 'Events with no updates for 3 months are deleted automatically.',
             'home.recent_events' => 'Recent events',
             'home.history_response' => 'Response link',
             'home.history_admin' => 'Creator link',
@@ -460,7 +462,7 @@ function translations(): array
             'admin.event_deleted' => 'The event has been deleted.',
             'admin.database_reset' => 'The database has been reset.',
             'admin.event_count' => 'Events: ',
-            'admin.auto_delete' => 'Auto delete: 1 month after the last update',
+            'admin.auto_delete' => 'Auto delete: 3 months after the last update',
             'admin.reset_confirm' => 'Delete all events and responses. Continue?',
             'admin.reset_database' => 'Reset database',
             'admin.event_list' => 'Created events',
@@ -760,7 +762,7 @@ function reset_database(): void
 
 function cleanup_expired_events(): int
 {
-    $cutoff = (new DateTimeImmutable('now'))->modify('-1 month')->format(DateTimeInterface::ATOM);
+    $cutoff = (new DateTimeImmutable('now'))->modify('-3 months')->format(DateTimeInterface::ATOM);
     $stmt = db()->prepare('DELETE FROM events WHERE updated_at < ?');
     $stmt->execute([$cutoff]);
     return $stmt->rowCount();

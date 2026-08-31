@@ -17,6 +17,7 @@ cleanup_expired_events();
         <h1><?= h(t('home.hero')) ?></h1>
         <p class="lead"><?= h(t('home.lead')) ?></p>
         <a class="button primary" href="create.php"><?= h(t('home.create')) ?></a>
+        <p class="hint"><?= h(t('home.retention_note')) ?></p>
     </section>
     <section class="recent-events" id="recentEvents" hidden>
         <h2><?= h(t('home.recent_events')) ?></h2>

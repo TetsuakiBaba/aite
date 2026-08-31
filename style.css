@@ -237,6 +237,11 @@ label span {
     margin: 10px 0 24px;
 }
 
+.hero .hint {
+    margin: 20px 0 0;
+    font-size: 0.78rem;
+}
+
 .recent-events {
     width: min(560px, 100%);
     display: grid;
