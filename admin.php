@@ -1,8 +1,8 @@
 <?php
 require_once __DIR__ . '/api.php';
 
-$id = (string)($_GET['id'] ?? '');
-$token = (string)($_GET['token'] ?? '');
+$id = get_string('id');
+$token = get_string('token');
 
 if ($id !== '') {
     $event = require_admin($id, $token);
@@ -151,24 +151,46 @@ if ($id !== '') {
     exit;
 }
 
-$adminToken = (string)($_POST['admin_token'] ?? $_GET['admin_token'] ?? '');
-$isAdmin = is_system_admin($adminToken);
+$langQuery = 'lang=' . rawurlencode(current_lang());
+$loginError = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    require_system_admin($adminToken);
-    $action = (string)($_POST['action'] ?? '');
+    $action = post_string('action');
 
-    if ($action === 'delete_event') {
-        delete_event((string)($_POST['event_id'] ?? ''));
-        redirect_to('admin.php?admin_token=' . rawurlencode($adminToken) . '&deleted=1&lang=' . rawurlencode(current_lang()));
-    }
+    if ($action === 'login') {
+        try {
+            if (system_admin_login(post_string('admin_token'))) {
+                redirect_to('admin.php?' . $langQuery);
+            }
+            $loginError = t('admin.invalid_token');
+        } catch (UserError $e) {
+            $loginError = $e->getMessage();
+        }
+    } else {
+        if (!is_system_admin_session() || !is_valid_csrf_token(post_string('csrf_token'))) {
+            http_response_code(403);
+            exit(h(t('admin.invalid_request')));
+        }
 
-    if ($action === 'reset_database') {
-        reset_database();
-        redirect_to('admin.php?admin_token=' . rawurlencode($adminToken) . '&reset=1&lang=' . rawurlencode(current_lang()));
+        if ($action === 'delete_event') {
+            delete_event(post_string('event_id'));
+            redirect_to('admin.php?deleted=1&' . $langQuery);
+        }
+
+        if ($action === 'reset_database') {
+            reset_database();
+            redirect_to('admin.php?reset=1&' . $langQuery);
+        }
+
+        if ($action === 'logout') {
+            system_admin_logout();
+            redirect_to('admin.php?' . $langQuery);
+        }
     }
 }
 
+$isAdmin = is_system_admin_session();
+$csrfToken = $isAdmin ? csrf_token() : '';
 $events = $isAdmin ? list_events() : [];
 ?>
 <!doctype html>
@@ -189,11 +211,12 @@ $events = $isAdmin ? list_events() : [];
         <section class="card stack">
             <h1><?= h(t('admin.mode')) ?></h1>
             <?php if (!$isAdmin): ?>
-                <?php if ($adminToken !== ''): ?>
-                    <p class="notice error"><?= h(t('admin.invalid_token')) ?></p>
+                <?php if ($loginError !== ''): ?>
+                    <p class="notice error"><?= h($loginError) ?></p>
                 <?php endif; ?>
-                <form class="stack" method="get" action="admin.php">
+                <form class="stack" method="post" action="admin.php">
                     <input type="hidden" name="lang" value="<?= h(current_lang()) ?>">
+                    <input type="hidden" name="action" value="login">
                     <label>
                         <span><?= h(t('admin.token')) ?></span>
                         <input name="admin_token" type="password" autocomplete="current-password" required>
@@ -212,10 +235,16 @@ $events = $isAdmin ? list_events() : [];
                     <span><?= h(t('admin.auto_delete')) ?></span>
                 </div>
                 <form method="post" action="admin.php" onsubmit="return confirm('<?= h(t('admin.reset_confirm')) ?>');">
-                    <input type="hidden" name="admin_token" value="<?= h($adminToken) ?>">
+                    <input type="hidden" name="csrf_token" value="<?= h($csrfToken) ?>">
                     <input type="hidden" name="lang" value="<?= h(current_lang()) ?>">
                     <input type="hidden" name="action" value="reset_database">
                     <button class="button danger" type="submit"><?= h(t('admin.reset_database')) ?></button>
+                </form>
+                <form method="post" action="admin.php">
+                    <input type="hidden" name="csrf_token" value="<?= h($csrfToken) ?>">
+                    <input type="hidden" name="lang" value="<?= h(current_lang()) ?>">
+                    <input type="hidden" name="action" value="logout">
+                    <button class="button secondary" type="submit"><?= h(t('admin.logout')) ?></button>
                 </form>
             <?php endif; ?>
         </section>
@@ -253,7 +282,7 @@ $events = $isAdmin ? list_events() : [];
                                             <div class="admin-actions">
                                                 <a class="button small" href="<?= h(admin_url($event['id'], $event['admin_token'])) ?>"><?= h(t('admin.event_admin')) ?></a>
                                                 <form method="post" action="admin.php" onsubmit="return confirm('<?= h(t('admin.delete_confirm')) ?>');">
-                                                    <input type="hidden" name="admin_token" value="<?= h($adminToken) ?>">
+                                                    <input type="hidden" name="csrf_token" value="<?= h($csrfToken) ?>">
                                                     <input type="hidden" name="lang" value="<?= h(current_lang()) ?>">
                                                     <input type="hidden" name="action" value="delete_event">
                                                     <input type="hidden" name="event_id" value="<?= h($event['id']) ?>">

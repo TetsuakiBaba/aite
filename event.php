@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/api.php';
-$id = $_GET['id'] ?? '';
+$id = get_string('id');
+$errorMessage = request_error_message();
 $event = get_event($id);
 if (!$event) {
     http_response_code(404);
@@ -36,8 +37,8 @@ $promptSlots = array_map(fn($s) => ['id' => $s['id'], 'text' => $s['slot_text'],
         <?php if (!empty($_GET['saved'])): ?>
             <p class="notice success"><?= h(t('event.saved')) ?></p>
         <?php endif; ?>
-        <?php if (!empty($_GET['error'])): ?>
-            <p class="notice error"><?= h($_GET['error']) ?></p>
+        <?php if ($errorMessage !== ''): ?>
+            <p class="notice error"><?= h($errorMessage) ?></p>
         <?php endif; ?>
     </section>
 

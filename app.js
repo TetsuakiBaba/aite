@@ -1633,14 +1633,6 @@
         var message = document.getElementById('editMessage');
         if (!form || !nameInput || !passwordInput) return;
 
-        var passwordTouched = false;
-        nameInput.addEventListener('input', function () {
-            if (!passwordTouched) passwordInput.value = nameInput.value;
-        });
-        passwordInput.addEventListener('input', function () {
-            passwordTouched = true;
-        });
-
         if (loadButton) {
             loadButton.addEventListener('click', function () {
                 if (message) message.textContent = '';

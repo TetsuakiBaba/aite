@@ -3,6 +3,84 @@ declare(strict_types=1);
 
 const DB_FILE = __DIR__ . '/data/aite.sqlite';
 const ADMIN_TOKEN_FILE = __DIR__ . '/data/admin_token.txt';
+const AUTH_FAILURE_WINDOW = 900;
+const AUTH_FAILURE_LIMIT_PER_RESPONSE = 10;
+const AUTH_FAILURE_LIMIT_PER_IP = 50;
+const ADMIN_LOGIN_FAILURE_LIMIT = 10;
+const ADMIN_SESSION_LIFETIME = 7200;
+const MAX_TITLE_LENGTH = 120;
+const MAX_DESCRIPTION_LENGTH = 5000;
+const MAX_NAME_LENGTH = 80;
+const MAX_PASSWORD_LENGTH = 120;
+const MAX_SLOTS = 300;
+const MAX_RANGES = 5000;
+
+ini_set('display_errors', '0');
+set_exception_handler('handle_unexpected_error');
+
+final class UserError extends RuntimeException
+{
+    public function __construct(public readonly string $key, public readonly array $args = [])
+    {
+        parent::__construct(t($key, ...$args));
+    }
+}
+
+function handle_unexpected_error(Throwable $e): void
+{
+    error_log('aite: ' . $e);
+    if (!headers_sent()) {
+        http_response_code(500);
+    }
+    echo h(t('common.error') . t('error.unexpected'));
+}
+
+function request_string(array $source, string $key): string
+{
+    $value = $source[$key] ?? '';
+    return is_string($value) ? $value : '';
+}
+
+function get_string(string $key): string
+{
+    return request_string($_GET, $key);
+}
+
+function post_string(string $key): string
+{
+    return request_string($_POST, $key);
+}
+
+function text_length(string $value): int
+{
+    return function_exists('mb_strlen') ? mb_strlen($value, 'UTF-8') : strlen($value);
+}
+
+function client_ip(): string
+{
+    return (string)($_SERVER['REMOTE_ADDR'] ?? '');
+}
+
+function is_https(): bool
+{
+    return !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+}
+
+function send_security_headers(): void
+{
+    if (headers_sent()) {
+        return;
+    }
+    header_remove('X-Powered-By');
+    header('X-Content-Type-Options: nosniff');
+    header('X-Frame-Options: DENY');
+    header('Referrer-Policy: same-origin');
+    header("Content-Security-Policy: frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'");
+}
+
+if (PHP_SAPI !== 'cli') {
+    send_security_headers();
+}
 
 function db(): PDO
 {
@@ -74,6 +152,11 @@ function init_db(PDO $pdo): void
             FOREIGN KEY (response_id) REFERENCES responses(id) ON DELETE CASCADE,
             FOREIGN KEY (slot_id) REFERENCES slots(id) ON DELETE CASCADE
         );
+        CREATE TABLE IF NOT EXISTS auth_failures (
+            scope TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS auth_failures_scope ON auth_failures(scope, created_at);
     ");
 
     if (!db_has_column($pdo, 'responses', 'password_hash')) {
@@ -241,7 +324,7 @@ function translations(): array
             'event.name' => '名前',
             'event.name_placeholder' => '山田 太郎',
             'event.edit_password' => '編集用パスワード',
-            'event.edit_password_placeholder' => '未変更なら名前と同じ',
+            'event.edit_password_placeholder' => '名前とは別のパスワード',
             'event.load_previous' => '前回回答を読み込む',
             'event.note' => 'メモ',
             'event.note_placeholder' => '例: どの候補も難しいですが、7/25の午後なら調整できます。',
@@ -299,6 +382,8 @@ function translations(): array
             'admin.event_admin' => '個別管理',
             'admin.delete_confirm' => 'このイベントを削除します。実行しますか？',
             'admin.delete' => '削除',
+            'admin.logout' => 'ログアウト',
+            'admin.invalid_request' => '操作を確認できませんでした。もう一度ログインしてください。',
             'common.name' => '名前',
             'common.note' => 'メモ',
             'common.error' => 'エラー: ',
@@ -314,6 +399,11 @@ function translations(): array
             'error.slot_min_duration_required' => '候補日時は最低必要時間以上にしてください。',
             'error.date_required' => '候補日は YYYY-MM-DD 形式で入力してください。',
             'error.response_required' => '名前と編集用パスワードを入力してください。',
+            'error.password_same_as_name' => '編集用パスワードには名前と異なるものを入力してください。',
+            'error.too_many_attempts' => '試行回数が多すぎます。しばらくしてからもう一度お試しください。',
+            'error.input_too_long' => '入力が長すぎます。',
+            'error.too_many_slots' => '候補が多すぎます。%d件以内にしてください。',
+            'error.unexpected' => '処理中に問題が発生しました。',
             'js.weekdays_short' => '日,月,火,水,木,金,土',
             'js.year_suffix' => '年',
             'js.month_suffix' => '月',
@@ -419,7 +509,7 @@ function translations(): array
             'event.name' => 'Name',
             'event.name_placeholder' => 'Jane Doe',
             'event.edit_password' => 'Edit password',
-            'event.edit_password_placeholder' => 'Defaults to your name if unchanged',
+            'event.edit_password_placeholder' => 'Different from your name',
             'event.load_previous' => 'Load previous response',
             'event.note' => 'Note',
             'event.note_placeholder' => 'Example: None of these work, but I could adjust on the afternoon of Jul 25.',
@@ -477,6 +567,8 @@ function translations(): array
             'admin.event_admin' => 'Event admin',
             'admin.delete_confirm' => 'Delete this event. Continue?',
             'admin.delete' => 'Delete',
+            'admin.logout' => 'Log out',
+            'admin.invalid_request' => 'The request could not be verified. Please log in again.',
             'common.name' => 'Name',
             'common.note' => 'Note',
             'common.error' => 'Error: ',
@@ -492,6 +584,11 @@ function translations(): array
             'error.slot_min_duration_required' => 'Candidate times must be at least the minimum required time.',
             'error.date_required' => 'Candidate dates must use YYYY-MM-DD format.',
             'error.response_required' => 'Enter your name and edit password.',
+            'error.password_same_as_name' => 'Use an edit password that is different from your name.',
+            'error.too_many_attempts' => 'Too many attempts. Please try again later.',
+            'error.input_too_long' => 'The input is too long.',
+            'error.too_many_slots' => 'Too many candidates. Use up to %d.',
+            'error.unexpected' => 'Something went wrong while processing the request.',
             'js.weekdays_short' => 'Sun,Mon,Tue,Wed,Thu,Fri,Sat',
             'js.year_suffix' => '',
             'js.month_suffix' => '',
@@ -941,16 +1038,14 @@ function save_response(string $eventId, string $name, string $password, string $
     $note = normalize_response_note($note);
     $now = date('c');
 
+    $existing = find_response_for_edit($eventId, $name, $password);
+    if (!$existing && $password === $name) {
+        throw new UserError('error.password_same_as_name');
+    }
+
     $pdo->beginTransaction();
     try {
-        $stmt = $pdo->prepare('SELECT id, password_hash FROM responses WHERE event_id = ? AND name = ?');
-        $stmt->execute([$eventId, $name]);
-        $existing = $stmt->fetch();
-
         if ($existing) {
-            if ($existing['password_hash'] !== '' && !password_verify($password, $existing['password_hash'])) {
-                throw new RuntimeException(t('error.wrong_password'));
-            }
             $responseId = (int)$existing['id'];
             $passwordHash = $existing['password_hash'] !== '' ? $existing['password_hash'] : password_hash($password, PASSWORD_DEFAULT);
             $stmt = $pdo->prepare('UPDATE responses SET password_hash = ?, note = ?, updated_at = ? WHERE id = ?');
@@ -995,7 +1090,7 @@ function save_response(string $eventId, string $name, string $password, string $
                 continue;
             }
             if ($minDurationUnits > 0 && ($end - $start) < $minDurationUnits) {
-                throw new RuntimeException(t('error.min_duration_required', duration_units_to_minutes($minDurationUnits)));
+                throw new UserError('error.min_duration_required', [duration_units_to_minutes($minDurationUnits)]);
             }
             $absoluteStart = $slotInfo['parsed']['start'] + $start;
             $absoluteEnd = $slotInfo['parsed']['start'] + $end;
@@ -1415,25 +1510,67 @@ function responses_with_answers(string $eventId): array
     return $responses;
 }
 
-function response_ranges_for_edit(string $eventId, string $name, string $password): array
+function auth_throttle_limits(string $scope, int $scopeLimit): array
 {
-    $stmt = db()->prepare('SELECT id, password_hash FROM responses WHERE event_id = ? AND name = ?');
+    return [
+        $scope => $scopeLimit,
+        'ip:' . client_ip() => AUTH_FAILURE_LIMIT_PER_IP,
+    ];
+}
+
+function auth_is_locked(array $limits): bool
+{
+    $stmt = db()->prepare('SELECT COUNT(*) FROM auth_failures WHERE scope = ? AND created_at > ?');
+    $since = time() - AUTH_FAILURE_WINDOW;
+    foreach ($limits as $scope => $limit) {
+        $stmt->execute([$scope, $since]);
+        if ((int)$stmt->fetchColumn() >= $limit) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function record_auth_failure(array $limits): void
+{
+    $pdo = db();
+    $now = time();
+    $pdo->prepare('DELETE FROM auth_failures WHERE created_at <= ?')->execute([$now - AUTH_FAILURE_WINDOW]);
+    $stmt = $pdo->prepare('INSERT INTO auth_failures (scope, created_at) VALUES (?, ?)');
+    foreach (array_keys($limits) as $scope) {
+        $stmt->execute([$scope, $now]);
+    }
+}
+
+function find_response_for_edit(string $eventId, string $name, string $password): ?array
+{
+    $limits = auth_throttle_limits('response:' . $eventId . ':' . $name, AUTH_FAILURE_LIMIT_PER_RESPONSE);
+    if (auth_is_locked($limits)) {
+        throw new UserError('error.too_many_attempts');
+    }
+
+    $stmt = db()->prepare('SELECT * FROM responses WHERE event_id = ? AND name = ?');
     $stmt->execute([$eventId, $name]);
     $response = $stmt->fetch();
     if (!$response) {
-        throw new RuntimeException(t('error.previous_not_found'));
+        return null;
     }
     if ($response['password_hash'] !== '' && !password_verify($password, $response['password_hash'])) {
-        throw new RuntimeException(t('error.wrong_password'));
+        record_auth_failure($limits);
+        throw new UserError('error.wrong_password');
     }
+    return $response;
+}
 
+function response_ranges_for_edit(int $responseId): array
+{
     $stmt = db()->prepare('
         SELECT slot_id, start_index, end_index
         FROM answer_ranges
         WHERE response_id = ?
         ORDER BY slot_id, start_index
     ');
-    $stmt->execute([(int)$response['id']]);
+    $stmt->execute([$responseId]);
     $ranges = [];
     foreach ($stmt->fetchAll() as $range) {
         $ranges[] = [
@@ -1445,20 +1582,10 @@ function response_ranges_for_edit(string $eventId, string $name, string $passwor
     return $ranges;
 }
 
-function response_answers_for_edit(string $eventId, string $name, string $password): array
+function response_answers_for_edit(int $responseId): array
 {
-    $stmt = db()->prepare('SELECT id, password_hash FROM responses WHERE event_id = ? AND name = ?');
-    $stmt->execute([$eventId, $name]);
-    $response = $stmt->fetch();
-    if (!$response) {
-        throw new RuntimeException(t('error.previous_not_found'));
-    }
-    if ($response['password_hash'] !== '' && !password_verify($password, $response['password_hash'])) {
-        throw new RuntimeException(t('error.wrong_password'));
-    }
-
     $stmt = db()->prepare('SELECT slot_id, status FROM answers WHERE response_id = ?');
-    $stmt->execute([(int)$response['id']]);
+    $stmt->execute([$responseId]);
     $answers = [];
     foreach ($stmt->fetchAll() as $answer) {
         $answers[] = [
@@ -1467,20 +1594,6 @@ function response_answers_for_edit(string $eventId, string $name, string $passwo
         ];
     }
     return $answers;
-}
-
-function response_note_for_edit(string $eventId, string $name, string $password): string
-{
-    $stmt = db()->prepare('SELECT note, password_hash FROM responses WHERE event_id = ? AND name = ?');
-    $stmt->execute([$eventId, $name]);
-    $response = $stmt->fetch();
-    if (!$response) {
-        throw new RuntimeException(t('error.previous_not_found'));
-    }
-    if ($response['password_hash'] !== '' && !password_verify($password, $response['password_hash'])) {
-        throw new RuntimeException(t('error.wrong_password'));
-    }
-    return (string)($response['note'] ?? '');
 }
 
 function range_label(array $ranges): string
@@ -1658,46 +1771,142 @@ function is_system_admin(string $token): bool
     return $token !== '' && hash_equals(system_admin_token(), $token);
 }
 
-function require_system_admin(string $token): void
+function start_admin_session(): void
 {
-    if (!is_system_admin($token)) {
-        http_response_code(403);
-        exit(t('admin.invalid_token'));
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        return;
     }
+    ini_set('session.use_strict_mode', '1');
+    session_name('aite_admin');
+    session_set_cookie_params([
+        'lifetime' => 0,
+        'path' => rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? '/'), '/\\') . '/',
+        'secure' => is_https(),
+        'httponly' => true,
+        'samesite' => 'Strict',
+    ]);
+    session_start();
+}
+
+function system_admin_fingerprint(): string
+{
+    return hash('sha256', system_admin_token());
+}
+
+function system_admin_login(string $token): bool
+{
+    $limits = auth_throttle_limits('admin:' . client_ip(), ADMIN_LOGIN_FAILURE_LIMIT);
+    if (auth_is_locked($limits)) {
+        throw new UserError('error.too_many_attempts');
+    }
+    if (!is_system_admin($token)) {
+        record_auth_failure($limits);
+        return false;
+    }
+
+    start_admin_session();
+    session_regenerate_id(true);
+    $_SESSION['system_admin'] = system_admin_fingerprint();
+    $_SESSION['system_admin_at'] = time();
+    $_SESSION['csrf_token'] = new_id(16);
+    return true;
+}
+
+function is_system_admin_session(): bool
+{
+    start_admin_session();
+    $fingerprint = $_SESSION['system_admin'] ?? '';
+    $loggedInAt = (int)($_SESSION['system_admin_at'] ?? 0);
+    if (!is_string($fingerprint) || $fingerprint === '' || time() - $loggedInAt > ADMIN_SESSION_LIFETIME) {
+        return false;
+    }
+    return hash_equals(system_admin_fingerprint(), $fingerprint);
+}
+
+function system_admin_logout(): void
+{
+    start_admin_session();
+    $_SESSION = [];
+    session_destroy();
+}
+
+function csrf_token(): string
+{
+    start_admin_session();
+    $token = $_SESSION['csrf_token'] ?? '';
+    return is_string($token) ? $token : '';
+}
+
+function is_valid_csrf_token(string $token): bool
+{
+    $expected = csrf_token();
+    return $expected !== '' && hash_equals($expected, $token);
+}
+
+function redirect_with_error(string $path, string $key, array $args = []): never
+{
+    $query = ['error' => $key];
+    if ($args) {
+        $query['error_arg'] = (string)$args[0];
+    }
+    $query['lang'] = current_lang();
+    redirect_to($path . (str_contains($path, '?') ? '&' : '?') . http_build_query($query));
+}
+
+// Only known message keys are shown, so the URL cannot inject arbitrary text into the page.
+function request_error_message(): string
+{
+    $key = get_string('error');
+    if (!str_starts_with($key, 'error.') || !isset(translations()['ja'][$key])) {
+        return '';
+    }
+    return t($key, (int)get_string('error_arg'));
+}
+
+// Prefix cells that spreadsheet apps would evaluate as formulas.
+function csv_safe_cell(string $value): string
+{
+    return preg_match('/^[=+\-@\t\r]/', $value) ? "'" . $value : $value;
 }
 
 function handle_create(): void
 {
-    $title = trim($_POST['title'] ?? '');
-    $description = trim($_POST['description'] ?? '');
-    $slotTexts = parse_slot_lines($_POST['slots'] ?? '');
+    $title = trim(post_string('title'));
+    $description = trim(post_string('description'));
+    $slotTexts = parse_slot_lines(post_string('slots'));
     $dateOnly = !empty($_POST['date_only']);
     $minDurationUnits = 0;
     if (!$dateOnly && !empty($_POST['min_duration_enabled'])) {
-        $minutes = (int)($_POST['min_duration_minutes'] ?? 0);
+        $minutes = (int)post_string('min_duration_minutes');
         if ($minutes < 10 || $minutes > 1440 || $minutes % 10 !== 0) {
-            redirect_to('create.php?error=' . rawurlencode(t('error.min_duration_invalid')) . '&lang=' . rawurlencode(current_lang()));
+            redirect_with_error('create.php', 'error.min_duration_invalid');
         }
         $minDurationUnits = intdiv($minutes, 10);
     }
 
     if ($title === '' || count($slotTexts) === 0) {
-        redirect_to('create.php?error=' . rawurlencode(t('error.create_required')));
+        redirect_with_error('create.php', 'error.create_required');
+    }
+    if (text_length($title) > MAX_TITLE_LENGTH || text_length($description) > MAX_DESCRIPTION_LENGTH) {
+        redirect_with_error('create.php', 'error.input_too_long');
+    }
+    if (count($slotTexts) > MAX_SLOTS) {
+        redirect_with_error('create.php', 'error.too_many_slots', [MAX_SLOTS]);
     }
 
     foreach ($slotTexts as $slotText) {
         if ($dateOnly) {
             if (!parse_date_slot_text($slotText)) {
-                redirect_to('create.php?error=' . rawurlencode(t('error.date_required')) . '&lang=' . rawurlencode(current_lang()));
+                redirect_with_error('create.php', 'error.date_required');
             }
             continue;
         }
         $parsed = parse_slot_text($slotText);
         if (!$parsed) {
-            redirect_to('create.php?error=' . rawurlencode(t('error.slot_30_minute_required')) . '&lang=' . rawurlencode(current_lang()));
+            redirect_with_error('create.php', 'error.slot_30_minute_required');
         }
         if ($minDurationUnits > 0 && ((int)$parsed['end'] - (int)$parsed['start']) < $minDurationUnits) {
-            redirect_to('create.php?error=' . rawurlencode(t('error.slot_min_duration_required')) . '&lang=' . rawurlencode(current_lang()));
+            redirect_with_error('create.php', 'error.slot_min_duration_required');
         }
     }
 
@@ -1707,39 +1916,44 @@ function handle_create(): void
 
 function handle_response(): void
 {
-    $eventId = $_POST['event_id'] ?? '';
+    $eventId = post_string('event_id');
     $event = get_event($eventId);
-    $name = trim($_POST['name'] ?? '');
-    $password = (string)($_POST['edit_password'] ?? '');
-    $note = (string)($_POST['note'] ?? '');
+    $name = trim(post_string('name'));
+    $password = post_string('edit_password');
+    $note = post_string('note');
+    $eventPath = 'event.php?id=' . rawurlencode($eventId);
 
     if (!$event || $name === '' || $password === '') {
-        redirect_to('event.php?id=' . rawurlencode($eventId) . '&error=' . rawurlencode(t('error.response_required')) . '&lang=' . rawurlencode(current_lang()));
+        redirect_with_error($eventPath, 'error.response_required');
+    }
+    if (text_length($name) > MAX_NAME_LENGTH || text_length($password) > MAX_PASSWORD_LENGTH) {
+        redirect_with_error($eventPath, 'error.input_too_long');
     }
 
     $ranges = [];
-    $rangeJson = $_POST['availability'] ?? '';
-    if (is_string($rangeJson) && $rangeJson !== '') {
+    $rangeJson = post_string('availability');
+    if ($rangeJson !== '') {
         $decoded = json_decode($rangeJson, true);
         if (is_array($decoded)) {
-            $ranges = $decoded;
+            $ranges = array_slice($decoded, 0, MAX_RANGES);
         }
     }
+    $answers = is_array($_POST['answers'] ?? null) ? $_POST['answers'] : [];
 
     try {
-        save_response($eventId, $name, $password, $note, $_POST['answers'] ?? [], $ranges);
-    } catch (RuntimeException $e) {
-        redirect_to('event.php?id=' . rawurlencode($eventId) . '&error=' . rawurlencode($e->getMessage()) . '&lang=' . rawurlencode(current_lang()));
+        save_response($eventId, $name, $password, $note, $answers, $ranges);
+    } catch (UserError $e) {
+        redirect_with_error($eventPath, $e->key, $e->args);
     }
-    redirect_to('event.php?id=' . rawurlencode($eventId) . '&saved=1&lang=' . rawurlencode(current_lang()));
+    redirect_to($eventPath . '&saved=1&lang=' . rawurlencode(current_lang()));
 }
 
 function handle_load_response(): void
 {
     header('Content-Type: application/json; charset=UTF-8');
-    $eventId = $_POST['event_id'] ?? '';
-    $name = trim($_POST['name'] ?? '');
-    $password = (string)($_POST['edit_password'] ?? '');
+    $eventId = post_string('event_id');
+    $name = trim(post_string('name'));
+    $password = post_string('edit_password');
     if (!get_event($eventId) || $name === '' || $password === '') {
         http_response_code(400);
         echo json_encode(['ok' => false, 'error' => t('error.response_required')], JSON_UNESCAPED_UNICODE);
@@ -1747,13 +1961,18 @@ function handle_load_response(): void
     }
 
     try {
+        $response = find_response_for_edit($eventId, $name, $password);
+        if (!$response) {
+            throw new UserError('error.previous_not_found');
+        }
+        $responseId = (int)$response['id'];
         echo json_encode([
             'ok' => true,
-            'ranges' => response_ranges_for_edit($eventId, $name, $password),
-            'answers' => response_answers_for_edit($eventId, $name, $password),
-            'note' => response_note_for_edit($eventId, $name, $password),
+            'ranges' => response_ranges_for_edit($responseId),
+            'answers' => response_answers_for_edit($responseId),
+            'note' => (string)($response['note'] ?? ''),
         ], JSON_UNESCAPED_UNICODE);
-    } catch (RuntimeException $e) {
+    } catch (UserError $e) {
         http_response_code(403);
         echo json_encode(['ok' => false, 'error' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
     }
@@ -1764,7 +1983,7 @@ function handle_events_exist(): void
 {
     header('Content-Type: application/json; charset=UTF-8');
     cleanup_expired_events();
-    $ids = array_values(array_filter(array_map('strval', (array)($_POST['ids'] ?? [])), fn($id) => $id !== ''));
+    $ids = array_values(array_filter((array)($_POST['ids'] ?? []), fn($id) => is_string($id) && $id !== ''));
     $ids = array_slice(array_unique($ids), 0, 50);
     $exists = [];
     foreach ($ids as $id) {
@@ -1776,8 +1995,8 @@ function handle_events_exist(): void
 
 function handle_csv(): void
 {
-    $eventId = $_GET['id'] ?? '';
-    $token = $_GET['token'] ?? '';
+    $eventId = get_string('id');
+    $token = get_string('token');
     $event = require_admin($eventId, $token);
     $slots = get_slots($eventId);
     $responses = responses_with_answers($eventId);
@@ -1789,13 +2008,13 @@ function handle_csv(): void
     fwrite($out, "\xEF\xBB\xBF");
     fputcsv($out, array_merge([t('common.name')], array_map(fn($slot) => slot_label($slot['slot_text']), $slots), [t('common.note')]));
     foreach ($responses as $response) {
-        $row = [$response['name']];
+        $row = [csv_safe_cell($response['name'])];
         foreach ($slots as $slot) {
             $row[] = $dateOnly
                 ? status_label($response['answers'][$slot['id']] ?? null)
                 : range_label($response['ranges'][$slot['id']] ?? []);
         }
-        $row[] = $response['note'] ?? '';
+        $row[] = csv_safe_cell($response['note'] ?? '');
         fputcsv($out, $row);
     }
     fclose($out);
@@ -1803,18 +2022,13 @@ function handle_csv(): void
 }
 
 if (basename($_SERVER['SCRIPT_FILENAME'] ?? '') === 'api.php') {
-    try {
-        $action = $_GET['action'] ?? $_POST['action'] ?? '';
-        match ($action) {
-            'create' => handle_create(),
-            'response' => handle_response(),
-            'load_response' => handle_load_response(),
-            'events_exist' => handle_events_exist(),
-            'csv' => handle_csv(),
-            default => exit('Unknown action'),
-        };
-    } catch (Throwable $e) {
-        http_response_code(500);
-        echo t('common.error') . h($e->getMessage());
-    }
+    $action = get_string('action') ?: post_string('action');
+    match ($action) {
+        'create' => handle_create(),
+        'response' => handle_response(),
+        'load_response' => handle_load_response(),
+        'events_exist' => handle_events_exist(),
+        'csv' => handle_csv(),
+        default => exit('Unknown action'),
+    };
 }

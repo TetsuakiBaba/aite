@@ -1,4 +1,7 @@
-<?php require_once __DIR__ . '/api.php'; ?>
+<?php
+require_once __DIR__ . '/api.php';
+$errorMessage = request_error_message();
+?>
 <!doctype html>
 <html lang="<?= h(current_lang()) ?>">
 <head>
@@ -18,8 +21,8 @@
 
         <section class="card stack create-basics">
             <h1><?= h(t('create.heading')) ?></h1>
-            <?php if (!empty($_GET['error'])): ?>
-                <p class="notice error"><?= h($_GET['error']) ?></p>
+            <?php if ($errorMessage !== ''): ?>
+                <p class="notice error"><?= h($errorMessage) ?></p>
             <?php endif; ?>
             <label>
                 <span><?= h(t('create.event_name')) ?></span>
@@ -32,7 +35,7 @@
             <div id="descriptionPanel" hidden>
                 <label>
                     <span><?= h(t('create.description')) ?></span>
-                    <textarea name="description" rows="3" placeholder="<?= h(t('create.description_placeholder')) ?>" disabled></textarea>
+                    <textarea name="description" rows="3" maxlength="5000"placeholder="<?= h(t('create.description_placeholder')) ?>" disabled></textarea>
                 </label>
             </div>
             <label class="check-row">
